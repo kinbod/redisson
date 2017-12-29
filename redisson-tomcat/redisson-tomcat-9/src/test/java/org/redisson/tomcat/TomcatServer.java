@@ -30,14 +30,16 @@ public class TomcatServer {
         tomcat.setPort(port);
         tomcat.getHost().setAppBase(".");
 
-        tomcat.addWebapp(contextPath, appBase + "webapp");
+        tomcat.addWebapp(contextPath, appBase + "/webapp");
     }
 
     /**
      * Start the tomcat embedded server
+     * @throws InterruptedException 
      */
-    public void start() throws LifecycleException {
+    public void start() throws LifecycleException, InterruptedException {
         tomcat.start();
+        tomcat.getConnector();
         isRunning = true;
     }
 
