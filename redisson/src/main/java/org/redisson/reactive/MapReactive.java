@@ -1,5 +1,5 @@
 /**
- * Copyright 2016 Nikita Koksharov
+ * Copyright 2018 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,27 +13,24 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.redisson.client.codec;
+package org.redisson.reactive;
 
-import org.redisson.client.protocol.Encoder;
+import org.reactivestreams.Publisher;
+import org.redisson.client.RedisClient;
+import org.redisson.client.protocol.decoder.MapScanResult;
+import org.redisson.client.protocol.decoder.ScanObjectEntry;
 
 /**
  * 
  * @author Nikita Koksharov
  *
+ * @param <K> key type
+ * @param <V> value type
  */
-public class ScoredCodec extends StringCodec {
+interface MapReactive<K, V> {
 
-    private final Codec delegate;
-
-    public ScoredCodec(Codec delegate) {
-        super();
-        this.delegate = delegate;
-    }
-
-    @Override
-    public Encoder getValueEncoder() {
-        return delegate.getValueEncoder();
-    }
-
+    Publisher<MapScanResult<ScanObjectEntry, ScanObjectEntry>> scanIteratorReactive(RedisClient client, long startPos);
+    
+    Publisher<V> put(K key, V value);
+    
 }

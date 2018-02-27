@@ -1,5 +1,5 @@
 /**
- * Copyright 2016 Nikita Koksharov
+ * Copyright 2018 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,7 +18,6 @@ package org.redisson.api;
 import java.util.concurrent.TimeUnit;
 
 import org.redisson.client.codec.Codec;
-import org.redisson.codec.ReferenceCodecProvider;
 import org.redisson.config.Config;
 
 /**
@@ -612,6 +611,50 @@ public interface RedissonClient {
     <V> RPriorityQueue<V> getPriorityQueue(String name, Codec codec);
 
     /**
+     * Returns unbounded priority blocking queue instance by name.
+     * It uses comparator to sort objects.
+     *
+     * @param <V> type of value
+     * @param name of object
+     * @return Queue object
+     */
+    <V> RPriorityBlockingQueue<V> getPriorityBlockingQueue(String name);
+    
+    /**
+     * Returns unbounded priority blocking queue instance by name
+     * using provided codec for queue objects.
+     * It uses comparator to sort objects.
+     *
+     * @param <V> type of value
+     * @param name - name of object
+     * @param codec - codec for message
+     * @return Queue object
+     */
+    <V> RPriorityBlockingQueue<V> getPriorityBlockingQueue(String name, Codec codec);
+
+    /**
+     * Returns unbounded priority blocking deque instance by name.
+     * It uses comparator to sort objects.
+     *
+     * @param <V> type of value
+     * @param name of object
+     * @return Queue object
+     */
+    <V> RPriorityBlockingDeque<V> getPriorityBlockingDeque(String name);
+    
+    /**
+     * Returns unbounded priority blocking deque instance by name
+     * using provided codec for queue objects.
+     * It uses comparator to sort objects.
+     *
+     * @param <V> type of value
+     * @param name - name of object
+     * @param codec - codec for message
+     * @return Queue object
+     */
+    <V> RPriorityBlockingDeque<V> getPriorityBlockingDeque(String name, Codec codec);
+    
+    /**
      * Returns priority unbounded deque instance by name.
      * It uses comparator to sort objects.
      *
@@ -729,6 +772,22 @@ public interface RedissonClient {
      */
     RAtomicDouble getAtomicDouble(String name);
 
+    /**
+     * Returns LongAdder instances by name.
+     * 
+     * @param name - name of object
+     * @return LongAdder object
+     */
+    RLongAdder getLongAdder(String name);
+
+    /**
+     * Returns DoubleAdder instances by name.
+     * 
+     * @param name - name of object
+     * @return LongAdder object
+     */
+    RDoubleAdder getDoubleAdder(String name);
+    
     /**
      * Returns countDownLatch instance by name.
      *
@@ -849,7 +908,7 @@ public interface RedissonClient {
      * @return Batch object
      */
     RBatch createBatch();
-
+    
     /**
      * Returns interface with methods for Redis keys.
      * Each of Redis/Redisson object associated with own key
@@ -896,13 +955,6 @@ public interface RedissonClient {
      */
     Config getConfig();
 
-    /**
-     * Returns the CodecProvider instance
-     * 
-     * @return CodecProvider object
-     */
-    public ReferenceCodecProvider getCodecProvider();
-    
     /**
      * Get Redis nodes group for server operations
      *

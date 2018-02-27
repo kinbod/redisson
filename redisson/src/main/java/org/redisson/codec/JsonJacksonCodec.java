@@ -1,5 +1,5 @@
 /**
- * Copyright 2016 Nikita Koksharov
+ * Copyright 2018 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@ package org.redisson.codec;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 
 import javax.xml.datatype.XMLGregorianCalendar;
 
@@ -64,7 +65,7 @@ public class JsonJacksonCodec implements Codec {
         
     }
     
-    private final ObjectMapper mapObjectMapper;
+    protected final ObjectMapper mapObjectMapper;
 
     private final Encoder encoder = new Encoder() {
         @Override
@@ -72,7 +73,7 @@ public class JsonJacksonCodec implements Codec {
             ByteBuf out = ByteBufAllocator.DEFAULT.buffer();
             try {
                 ByteBufOutputStream os = new ByteBufOutputStream(out);
-                mapObjectMapper.writeValue(os, in);
+                mapObjectMapper.writeValue((OutputStream)os, in);
                 return os.buffer();
             } catch (IOException e) {
                 out.release();
@@ -103,9 +104,9 @@ public class JsonJacksonCodec implements Codec {
     }
 
     public JsonJacksonCodec(ObjectMapper mapObjectMapper) {
-        this.mapObjectMapper = mapObjectMapper;
-        init(mapObjectMapper);
-        initTypeInclusion(mapObjectMapper);
+        this.mapObjectMapper = mapObjectMapper.copy();
+        init(this.mapObjectMapper);
+        initTypeInclusion(this.mapObjectMapper);
     }
 
     protected void initTypeInclusion(ObjectMapper mapObjectMapper) {

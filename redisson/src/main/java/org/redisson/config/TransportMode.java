@@ -1,5 +1,5 @@
 /**
- * Copyright 2016 Nikita Koksharov
+ * Copyright 2018 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,12 +13,29 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.redisson.client;
+package org.redisson.config;
 
-import org.redisson.misc.RPromise;
+/**
+ * 
+ * @author Nikita Koksharov
+ *
+ */
+public enum TransportMode {
 
-public interface ReconnectListener {
+    /**
+     * Use NIO transport.
+     */
+    NIO,
 
-    void onReconnect(RedisConnection redisConnection, RPromise<RedisConnection> connectionFuture) throws RedisException;
+    /**
+     * Use EPOLL transport. Activates an unix socket if servers binded to loopback interface.
+     * Requires <b>netty-transport-native-epoll</b> lib in classpath.
+     */
+    EPOLL,
+
+    /**
+     * Use KQUEUE transport. Requires <b>netty-transport-native-kqueue</b> lib in classpath.
+     */
+    KQUEUE,
 
 }

@@ -1,5 +1,5 @@
 /**
- * Copyright 2016 Nikita Koksharov
+ * Copyright 2018 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -77,7 +77,7 @@ public abstract class BaseRemoteService {
     private static final Logger log = LoggerFactory.getLogger(BaseRemoteService.class);
 
     private final Map<Class<?>, String> requestQueueNameCache = PlatformDependent.newConcurrentHashMap();
-    private final Map<Method, List<String>> methodSignaturesCache = PlatformDependent.newConcurrentHashMap();
+    private final ConcurrentMap<Method, List<String>> methodSignaturesCache = PlatformDependent.newConcurrentHashMap();
 
     protected final Codec codec;
     protected final RedissonClient redisson;
@@ -733,7 +733,7 @@ public abstract class BaseRemoteService {
     protected RequestId generateRequestId() {
         byte[] id = new byte[16];
         // TODO JDK UPGRADE replace to native ThreadLocalRandom
-        ThreadLocalRandom.current().nextBytes(id);
+        PlatformDependent.threadLocalRandom().nextBytes(id);
         return new RequestId(id);
     }
 

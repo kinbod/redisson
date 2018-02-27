@@ -1,5 +1,5 @@
 /**
- * Copyright 2016 Nikita Koksharov
+ * Copyright 2018 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -63,6 +63,7 @@ public class RedissonBatchReactive implements RBatchReactive {
     private int syncSlaves;
     private long syncTimeout;
     private boolean skipResult;
+    private boolean atomic;
     
     public RedissonBatchReactive(EvictionScheduler evictionScheduler, ConnectionManager connectionManager) {
         this.evictionScheduler = evictionScheduler;
@@ -219,9 +220,14 @@ public class RedissonBatchReactive implements RBatchReactive {
         return new NettyFuturePublisher<BatchResult<?>>(new Supplier<RFuture<BatchResult<?>>>() {
             @Override
             public RFuture<BatchResult<?>> get() {
-                return executorService.executeAsync(syncSlaves, syncTimeout, skipResult, timeout, retryAttempts, retryInterval);
+                return executorService.executeAsync(syncSlaves, syncTimeout, skipResult, timeout, retryAttempts, retryInterval, atomic);
             }
         });
+    }
+    
+    public RBatchReactive atomic() {
+        this.atomic = true;
+        return this;
     }
     
     @Override

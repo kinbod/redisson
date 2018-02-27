@@ -1,5 +1,5 @@
 /**
- * Copyright 2016 Nikita Koksharov
+ * Copyright 2018 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,6 +24,7 @@ import java.util.concurrent.TimeUnit;
 import org.apache.catalina.session.StandardSession;
 import org.redisson.api.RMap;
 import org.redisson.tomcat.RedissonSessionManager.ReadMode;
+import org.redisson.tomcat.RedissonSessionManager.UpdateMode;
 
 /**
  * Redisson Session object for Apache Tomcat
@@ -37,11 +38,14 @@ public class RedissonSession extends StandardSession {
     private final Map<String, Object> attrs;
     private RMap<String, Object> map;
     private final RedissonSessionManager.ReadMode readMode;
+    private final UpdateMode updateMode;
     
-    public RedissonSession(RedissonSessionManager manager, RedissonSessionManager.ReadMode readMode) {
+    public RedissonSession(RedissonSessionManager manager, ReadMode readMode, UpdateMode updateMode) {
         super(manager);
         this.redissonManager = manager;
         this.readMode = readMode;
+        this.updateMode = updateMode;
+        
         try {
             Field attr = StandardSession.class.getDeclaredField("attributes");
             attrs = (Map<String, Object>) attr.get(this);
@@ -148,7 +152,7 @@ public class RedissonSession extends StandardSession {
     public void setAttribute(String name, Object value, boolean notify) {
         super.setAttribute(name, value, notify);
         
-        if (map != null && value != null) {
+        if (updateMode == UpdateMode.DEFAULT && map != null && value != null) {
             map.fastPut(name, value);
         }
     }
@@ -157,7 +161,7 @@ public class RedissonSession extends StandardSession {
     protected void removeAttributeInternal(String name, boolean notify) {
         super.removeAttributeInternal(name, notify);
         
-        if (map != null) {
+        if (updateMode == UpdateMode.DEFAULT && map != null) {
             map.fastRemove(name);
         }
     }
@@ -192,6 +196,10 @@ public class RedissonSession extends StandardSession {
         Long lastAccessedTime = (Long) attrs.remove("session:lastAccessedTime");
         if (lastAccessedTime != null) {
             this.lastAccessedTime = lastAccessedTime;
+        }
+        Integer maxInactiveInterval = (Integer) attrs.remove("session:maxInactiveInterval");
+        if (maxInactiveInterval != null) {
+            this.maxInactiveInterval = maxInactiveInterval;
         }
         Long thisAccessedTime = (Long) attrs.remove("session:thisAccessedTime");
         if (thisAccessedTime != null) {

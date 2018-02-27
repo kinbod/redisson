@@ -1,5 +1,5 @@
 /**
- * Copyright 2016 Nikita Koksharov
+ * Copyright 2018 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -87,12 +87,10 @@ public class LoadBalancerManager {
         RPromise<Void> result = new RedissonPromise<Void>();
         
         CountableListener<Void> listener = new CountableListener<Void>(result, null) {
-            public void operationComplete(io.netty.util.concurrent.Future<Object> future) throws Exception {
-                super.operationComplete(future);
-                if (this.result.isSuccess()) {
-                    client2Entry.put(entry.getClient(), entry);
-                }
-            };
+            @Override
+            protected void onSuccess(Void value) {
+                client2Entry.put(entry.getClient(), entry);
+            }
         };
 
         RFuture<Void> slaveFuture = slaveConnectionPool.add(entry);
@@ -239,7 +237,7 @@ public class LoadBalancerManager {
             return slaveConnectionPool.get(command, entry);
         }
         RedisConnectionException exception = new RedisConnectionException("Can't find entry for " + addr);
-        return connectionManager.newFailedFuture(exception);
+        return RedissonPromise.newFailedFuture(exception);
     }
 
     public RFuture<RedisConnection> nextConnection(RedisCommand<?> command) {

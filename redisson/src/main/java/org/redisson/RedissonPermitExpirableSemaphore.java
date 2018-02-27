@@ -1,5 +1,5 @@
 /**
- * Copyright 2016 Nikita Koksharov
+ * Copyright 2018 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,6 +26,7 @@ import org.redisson.client.codec.LongCodec;
 import org.redisson.client.protocol.RedisCommands;
 import org.redisson.command.CommandExecutor;
 import org.redisson.misc.RPromise;
+import org.redisson.misc.RedissonPromise;
 import org.redisson.pubsub.SemaphorePubSub;
 
 import io.netty.buffer.ByteBufUtil;
@@ -33,7 +34,7 @@ import io.netty.util.Timeout;
 import io.netty.util.TimerTask;
 import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.FutureListener;
-import io.netty.util.internal.ThreadLocalRandom;
+import io.netty.util.internal.PlatformDependent;
 
 /**
  * 
@@ -52,7 +53,7 @@ public class RedissonPermitExpirableSemaphore extends RedissonExpirable implemen
 
     protected RedissonPermitExpirableSemaphore(CommandExecutor commandExecutor, String name, SemaphorePubSub semaphorePubSub) {
         super(commandExecutor, name);
-        this.timeoutName = "{" + name + "}:timeout";
+        this.timeoutName = suffixName(name, "timeout");
         this.commandExecutor = commandExecutor;
         this.semaphorePubSub = semaphorePubSub;
     }
@@ -123,7 +124,7 @@ public class RedissonPermitExpirableSemaphore extends RedissonExpirable implemen
     }
     
     private RFuture<String> acquireAsync(final int permits, final long ttl, final TimeUnit timeUnit) {
-        final RPromise<String> result = newPromise();
+        final RPromise<String> result = new RedissonPromise<String>();
         long timeoutDate = calcTimeout(ttl, timeUnit);
         RFuture<String> tryAcquireFuture = tryAcquireAsync(permits, timeoutDate);
         tryAcquireFuture.addListener(new FutureListener<String>() {
@@ -372,7 +373,7 @@ public class RedissonPermitExpirableSemaphore extends RedissonExpirable implemen
     }
     
     public RFuture<String> tryAcquireAsync() {
-        final RPromise<String> result = newPromise();
+        final RPromise<String> result = new RedissonPromise<String>();
         RFuture<String> res = tryAcquireAsync(1, nonExpirableTimeout);
         res.addListener(new FutureListener<String>() {
             @Override
@@ -398,7 +399,7 @@ public class RedissonPermitExpirableSemaphore extends RedissonExpirable implemen
     protected String generateId() {
         byte[] id = new byte[16];
         // TODO JDK UPGRADE replace to native ThreadLocalRandom
-        ThreadLocalRandom.current().nextBytes(id);
+        PlatformDependent.threadLocalRandom().nextBytes(id);
         return ByteBufUtil.hexDump(id);
     }
     
@@ -512,7 +513,7 @@ public class RedissonPermitExpirableSemaphore extends RedissonExpirable implemen
     }
 
     private RFuture<String> tryAcquireAsync(final int permits, long waitTime, final long ttl, final TimeUnit timeUnit) {
-        final RPromise<String> result = newPromise();
+        final RPromise<String> result = new RedissonPromise<String>();
         final AtomicLong time = new AtomicLong(timeUnit.toMillis(waitTime));
         final long current = System.currentTimeMillis();
         long timeoutDate = calcTimeout(ttl, timeUnit);
@@ -635,8 +636,34 @@ public class RedissonPermitExpirableSemaphore extends RedissonExpirable implemen
     }
     
     @Override
+    public RFuture<Boolean> expireAsync(long timeToLive, TimeUnit timeUnit) {
+        return commandExecutor.evalWriteAsync(getName(), LongCodec.INSTANCE, RedisCommands.EVAL_BOOLEAN,
+                        "redis.call('pexpire', KEYS[1], ARGV[1]); " +
+                        "return redis.call('pexpire', KEYS[2], ARGV[1]); ",
+                Arrays.<Object>asList(getName(), timeoutName),
+                timeUnit.toMillis(timeToLive));
+    }
+
+    @Override
+    public RFuture<Boolean> expireAtAsync(long timestamp) {
+        return commandExecutor.evalWriteAsync(getName(), LongCodec.INSTANCE, RedisCommands.EVAL_BOOLEAN,
+                        "redis.call('pexpireat', KEYS[1], ARGV[1]); " +
+                        "return redis.call('pexpireat', KEYS[2], ARGV[1]); ",
+                Arrays.<Object>asList(getName(), timeoutName),
+                timestamp);
+    }
+
+    @Override
+    public RFuture<Boolean> clearExpireAsync() {
+        return commandExecutor.evalWriteAsync(getName(), LongCodec.INSTANCE, RedisCommands.EVAL_BOOLEAN,
+                        "redis.call('persist', KEYS[1]); " +
+                        "return redis.call('persist', KEYS[2]); ",
+                Arrays.<Object>asList(getName(), timeoutName));
+    }
+    
+    @Override
     public RFuture<Void> releaseAsync(final String permitId) {
-        final RPromise<Void> result = newPromise();
+        final RPromise<Void> result = new RedissonPromise<Void>();
         tryReleaseAsync(permitId).addListener(new FutureListener<Boolean>() {
             @Override
             public void operationComplete(Future<Boolean> future) throws Exception {

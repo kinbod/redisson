@@ -1,5 +1,5 @@
 /**
- * Copyright 2016 Nikita Koksharov
+ * Copyright 2018 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,6 +24,7 @@ import org.redisson.api.ClusterNode;
 import org.redisson.api.MapOptions;
 import org.redisson.api.Node;
 import org.redisson.api.NodesGroup;
+import org.redisson.api.RAtomicDoubleReactive;
 import org.redisson.api.RAtomicLongReactive;
 import org.redisson.api.RBatchReactive;
 import org.redisson.api.RBitSetReactive;
@@ -59,6 +60,7 @@ import org.redisson.config.ConfigSupport;
 import org.redisson.connection.ConnectionManager;
 import org.redisson.eviction.EvictionScheduler;
 import org.redisson.pubsub.SemaphorePubSub;
+import org.redisson.reactive.RedissonAtomicDoubleReactive;
 import org.redisson.reactive.RedissonAtomicLongReactive;
 import org.redisson.reactive.RedissonBatchReactive;
 import org.redisson.reactive.RedissonBitSetReactive;
@@ -119,12 +121,12 @@ public class RedissonReactive implements RedissonReactiveClient {
     
     @Override
     public RReadWriteLockReactive getReadWriteLock(String name) {
-        return new RedissonReadWriteLockReactive(commandExecutor, name, id);
+        return new RedissonReadWriteLockReactive(commandExecutor, name);
     }
     
     @Override
     public RLockReactive getLock(String name) {
-        return new RedissonLockReactive(commandExecutor, name, id);
+        return new RedissonLockReactive(commandExecutor, name);
     }
 
     @Override
@@ -301,6 +303,11 @@ public class RedissonReactive implements RedissonReactiveClient {
     @Override
     public RAtomicLongReactive getAtomicLong(String name) {
         return new RedissonAtomicLongReactive(commandExecutor, name);
+    }
+    
+    @Override
+    public RAtomicDoubleReactive getAtomicDouble(String name) {
+        return new RedissonAtomicDoubleReactive(commandExecutor, name);
     }
 
     @Override

@@ -1,5 +1,5 @@
 /**
- * Copyright 2016 Nikita Koksharov
+ * Copyright 2018 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -79,6 +79,12 @@ public interface RScoredSortedSet<V> extends RScoredSortedSetAsync<V>, Iterable<
      */
     Integer revRank(V o);
 
+    /**
+     * Returns score of element or <code>null</code> if it doesn't exist.
+     * 
+     * @param o - element
+     * @return score
+     */
     Double getScore(V o);
 
     /**

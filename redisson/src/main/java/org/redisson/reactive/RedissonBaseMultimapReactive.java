@@ -1,5 +1,5 @@
 /**
- * Copyright 2016 Nikita Koksharov
+ * Copyright 2018 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -152,12 +152,12 @@ abstract class RedissonBaseMultimapReactive<K, V> extends RedissonExpirableReact
     }
 
     protected String hash(ByteBuf objectState) {
-        return Hash.hashToBase64(objectState);
+        return Hash.hash128toBase64(objectState);
     }
     
     protected String hashAndRelease(ByteBuf objectState) {
         try {
-            return Hash.hashToBase64(objectState);
+            return Hash.hash128toBase64(objectState);
         } finally {
             objectState.release();
         }

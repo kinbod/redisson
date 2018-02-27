@@ -12,14 +12,11 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 import org.junit.After;
-import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.Before;
-import org.junit.BeforeClass;
 import org.junit.Test;
 import org.redisson.BaseTest;
 import org.redisson.RedissonNode;
-import org.redisson.RedissonRuntimeEnvironment;
 import org.redisson.api.CronSchedule;
 import org.redisson.api.RScheduledExecutorService;
 import org.redisson.api.RScheduledFuture;
@@ -30,26 +27,6 @@ public class RedissonScheduledExecutorServiceTest extends BaseTest {
 
     private static RedissonNode node;
     
-    @BeforeClass
-    public static void beforeClass() throws IOException, InterruptedException {
-        if (!RedissonRuntimeEnvironment.isTravis) {
-            BaseTest.beforeClass();
-            Config config = createConfig();
-            RedissonNodeConfig nodeConfig = new RedissonNodeConfig(config);
-            nodeConfig.setExecutorServiceWorkers(Collections.singletonMap("test", 1));
-            node = RedissonNode.create(nodeConfig);
-            node.start();
-        }
-    }
-    
-    @AfterClass
-    public static void afterClass() throws IOException, InterruptedException {
-        if (!RedissonRuntimeEnvironment.isTravis) {
-            BaseTest.afterClass();
-            node.shutdown();
-        }
-    }
-
     @Before
     @Override
     public void before() throws IOException, InterruptedException {
@@ -68,6 +45,25 @@ public class RedissonScheduledExecutorServiceTest extends BaseTest {
         node.shutdown();
     }
 
+    @Test(timeout = 7000)
+    public void testTaskResume() throws InterruptedException, ExecutionException {
+        RScheduledExecutorService executor = redisson.getExecutorService("test");
+        ScheduledFuture<Long> future1 = executor.schedule(new ScheduledCallableTask(), 5, TimeUnit.SECONDS);
+        ScheduledFuture<Long> future2 = executor.schedule(new ScheduledCallableTask(), 5, TimeUnit.SECONDS);
+        ScheduledFuture<Long> future3 = executor.schedule(new ScheduledCallableTask(), 5, TimeUnit.SECONDS);
+        
+        node.shutdown();
+        
+        RedissonNodeConfig nodeConfig = new RedissonNodeConfig(redisson.getConfig());
+        nodeConfig.setExecutorServiceWorkers(Collections.singletonMap("test", 1));
+        node = RedissonNode.create(nodeConfig);
+        node.start();
+
+        assertThat(future1.get()).isEqualTo(100);
+        assertThat(future2.get()).isEqualTo(100);
+        assertThat(future3.get()).isEqualTo(100);
+    }
+    
     @Test
     public void testLoad() {
         Config config = createConfig();
@@ -170,6 +166,17 @@ public class RedissonScheduledExecutorServiceTest extends BaseTest {
         
         cancel(future1);
         assertThat(redisson.<Long>getBucket("executed1").get()).isBetween(1000L, Long.MAX_VALUE);
+
+        Thread.sleep(3000);
+        assertThat(redisson.getAtomicLong("counter").get()).isEqualTo(3);
+        redisson.getAtomicLong("counter").delete();
+        
+        RScheduledFuture<?> future2 = executor.scheduleWithFixedDelay(new ScheduledLongRepeatableTask("counter", "executed2"), 1, 2, TimeUnit.SECONDS);
+        Thread.sleep(6000);
+        assertThat(redisson.getAtomicLong("counter").get()).isEqualTo(3);
+        
+        executor.cancelTask(future2.getTaskId());
+        assertThat(redisson.<Long>getBucket("executed2").get()).isBetween(1000L, Long.MAX_VALUE);
 
         Thread.sleep(3000);
         assertThat(redisson.getAtomicLong("counter").get()).isEqualTo(3);

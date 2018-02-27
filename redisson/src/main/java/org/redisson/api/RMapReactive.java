@@ -1,5 +1,5 @@
 /**
- * Copyright 2016 Nikita Koksharov
+ * Copyright 2018 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -35,7 +35,7 @@ import org.redisson.api.map.MapWriter;
 public interface RMapReactive<K, V> extends RExpirableReactive {
 
     /**
-     * Loads all map entries to this Redis map.
+     * Loads all map entries to this Redis map using {@link org.redisson.api.map.MapLoader}.
      * 
      * @param replaceExistingValues - <code>true</code> if existed values should be replaced, <code>false</code> otherwise.  
      * @param parallelism - parallelism level, used to increase speed of process execution
@@ -44,7 +44,7 @@ public interface RMapReactive<K, V> extends RExpirableReactive {
     Publisher<Void> loadAll(boolean replaceExistingValues, int parallelism);
     
     /**
-     * Loads map entries whose keys are listed in defined <code>keys</code> parameter.
+     * Loads map entries using {@link org.redisson.api.map.MapLoader} whose keys are listed in defined <code>keys</code> parameter.
      * 
      * @param keys - map keys
      * @param replaceExistingValues - <code>true</code> if existed values should be replaced, <code>false</code> otherwise.

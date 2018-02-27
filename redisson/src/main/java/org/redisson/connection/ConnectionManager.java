@@ -1,5 +1,5 @@
 /**
- * Copyright 2016 Nikita Koksharov
+ * Copyright 2018 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@ package org.redisson.connection;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.util.Collection;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 
@@ -32,7 +33,6 @@ import org.redisson.command.CommandSyncService;
 import org.redisson.config.Config;
 import org.redisson.config.MasterSlaveServersConfig;
 import org.redisson.misc.InfinitySemaphoreLatch;
-import org.redisson.misc.RPromise;
 import org.redisson.pubsub.AsyncSemaphore;
 
 import io.netty.channel.EventLoopGroup;
@@ -46,6 +46,8 @@ import io.netty.util.TimerTask;
  */
 public interface ConnectionManager {
     
+    UUID getId();
+    
     CommandSyncService getCommandExecutor();
     
     ExecutorService getExecutor();
@@ -58,8 +60,6 @@ public interface ConnectionManager {
 
     AsyncSemaphore getSemaphore(String channelName);
     
-    <R> RFuture<R> newSucceededFuture(R value);
-
     ConnectionEventsHub getConnectionEventsHub();
 
     boolean isShutdown();
@@ -71,8 +71,6 @@ public interface ConnectionManager {
     RFuture<PubSubConnectionEntry> subscribe(Codec codec, String channelName, AsyncSemaphore semaphore, RedisPubSubListener<?>... listeners);
     
     IdleConnectionWatcher getConnectionWatcher();
-
-    <R> RFuture<R> newFailedFuture(Throwable cause);
 
     Collection<RedisClientEntry> getClients();
 
@@ -90,8 +88,6 @@ public interface ConnectionManager {
     
     MasterSlaveEntry getEntry(InetSocketAddress address);
     
-    <R> RPromise<R> newPromise();
-
     void releaseRead(NodeSource source, RedisConnection connection);
 
     void releaseWrite(NodeSource source, RedisConnection connection);
@@ -114,13 +110,13 @@ public interface ConnectionManager {
     
     RFuture<PubSubConnectionEntry> psubscribe(String pattern, Codec codec, AsyncSemaphore semaphore, RedisPubSubListener<?>... listeners);
 
-    Codec unsubscribe(String channelName, AsyncSemaphore lock);
+    void unsubscribe(String channelName, AsyncSemaphore lock);
     
     RFuture<Codec> unsubscribe(String channelName, boolean temporaryDown);
 
     RFuture<Codec> punsubscribe(String channelName, boolean temporaryDown);
 
-    Codec punsubscribe(String channelName, AsyncSemaphore lock);
+    void punsubscribe(String channelName, AsyncSemaphore lock);
     
     void shutdown();
 

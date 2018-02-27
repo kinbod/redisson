@@ -1,5 +1,5 @@
 /**
- * Copyright 2016 Nikita Koksharov
+ * Copyright 2018 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,18 +18,16 @@ package org.redisson;
 import java.io.IOException;
 import java.io.Serializable;
 import java.math.BigDecimal;
-import java.util.AbstractCollection;
 import java.util.AbstractMap;
-import java.util.AbstractSet;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
@@ -68,6 +66,7 @@ import org.redisson.command.CommandAsyncExecutor;
 import org.redisson.eviction.EvictionScheduler;
 import org.redisson.misc.Hash;
 import org.redisson.misc.RPromise;
+import org.redisson.misc.RedissonPromise;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -75,7 +74,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.FutureListener;
-import io.netty.util.internal.ThreadLocalRandom;
+import io.netty.util.internal.PlatformDependent;
 
 /**
  * 
@@ -181,8 +180,8 @@ public class RedissonLocalCachedMap<K, V> extends RedissonMap<K, V> implements R
     private RTopic<Object> invalidationTopic;
     private Cache<CacheKey, CacheValue> cache;
     private int invalidateEntryOnChange;
-    private int invalidationListenerId;
-    private int invalidationStatusListenerId;
+    private int syncListenerId;
+    private int reconnectionListenerId;
     private volatile long lastInvalidate;
     private SyncStrategy syncStrategy;
     private final Codec topicCodec = new LocalCachedMessageCodec();
@@ -219,7 +218,7 @@ public class RedissonLocalCachedMap<K, V> extends RedissonMap<K, V> implements R
         invalidationTopic = new RedissonTopic<Object>(topicCodec, commandExecutor, suffixName(name, "topic"));
 
         if (options.getReconnectionStrategy() != ReconnectionStrategy.NONE) {
-            invalidationStatusListenerId = invalidationTopic.addListener(new BaseStatusListener() {
+            reconnectionListenerId = invalidationTopic.addListener(new BaseStatusListener() {
                 @Override
                 public void onSubscribe(String channel) {
                     if (options.getReconnectionStrategy() == ReconnectionStrategy.CLEAR) {
@@ -238,6 +237,7 @@ public class RedissonLocalCachedMap<K, V> extends RedissonMap<K, V> implements R
                             @Override
                             public void operationComplete(Future<Boolean> future) throws Exception {
                                 if (!future.isSuccess()) {
+                                    log.error("Can't check existance", future.cause());
                                     return;
                                 }
 
@@ -272,7 +272,7 @@ public class RedissonLocalCachedMap<K, V> extends RedissonMap<K, V> implements R
         }
         
         if (options.getSyncStrategy() != SyncStrategy.NONE) {
-            invalidationListenerId = invalidationTopic.addListener(new MessageListener<Object>() {
+            syncListenerId = invalidationTopic.addListener(new MessageListener<Object>() {
                 @Override
                 public void onMessage(String channel, Object msg) {
                     if (msg instanceof LocalCachedMapClear) {
@@ -347,7 +347,7 @@ public class RedissonLocalCachedMap<K, V> extends RedissonMap<K, V> implements R
     }
     
     private CacheKey toCacheKey(ByteBuf encodedKey) {
-        return new CacheKey(Hash.hash(encodedKey));
+        return new CacheKey(Hash.hash128toArray(encodedKey));
     }
     
     @Override
@@ -358,7 +358,7 @@ public class RedissonLocalCachedMap<K, V> extends RedissonMap<K, V> implements R
         if (!cache.containsKey(cacheKey)) {
             return super.containsKeyAsync(key);
         }
-        return newSucceededFuture(true);
+        return RedissonPromise.newSucceededFuture(true);
     }
 
     @Override
@@ -369,7 +369,7 @@ public class RedissonLocalCachedMap<K, V> extends RedissonMap<K, V> implements R
         if (!cache.containsValue(cacheValue)) {
             return super.containsValueAsync(value);
         }
-        return newSucceededFuture(true);
+        return RedissonPromise.newSucceededFuture(true);
     }
     
     @Override
@@ -379,7 +379,7 @@ public class RedissonLocalCachedMap<K, V> extends RedissonMap<K, V> implements R
         final CacheKey cacheKey = toCacheKey(key);
         CacheValue cacheValue = cache.get(cacheKey);
         if (cacheValue != null && cacheValue.getValue() != null) {
-            return newSucceededFuture((V)cacheValue.getValue());
+            return RedissonPromise.newSucceededFuture((V)cacheValue.getValue());
         }
 
         RFuture<V> future = super.getAsync((K)key);
@@ -406,7 +406,7 @@ public class RedissonLocalCachedMap<K, V> extends RedissonMap<K, V> implements R
     protected static byte[] generateId() {
         byte[] id = new byte[16];
         // TODO JDK UPGRADE replace to native ThreadLocalRandom
-        ThreadLocalRandom.current().nextBytes(id);
+        PlatformDependent.threadLocalRandom().nextBytes(id);
         return id;
     }
 
@@ -415,7 +415,7 @@ public class RedissonLocalCachedMap<K, V> extends RedissonMap<K, V> implements R
         result[16] = ':';
         byte[] id = new byte[8];
         // TODO JDK UPGRADE replace to native ThreadLocalRandom
-        ThreadLocalRandom.current().nextBytes(id);
+        PlatformDependent.threadLocalRandom().nextBytes(id);
         
         System.arraycopy(keyHash, 0, result, 0, keyHash.length);
         System.arraycopy(id, 0, result, 17, id.length);
@@ -426,7 +426,7 @@ public class RedissonLocalCachedMap<K, V> extends RedissonMap<K, V> implements R
     @Override
     protected RFuture<V> putOperationAsync(K key, V value) {
         ByteBuf mapKey = encodeMapKey(key);
-        ByteBuf mapValue = encodeMapKey(value);
+        ByteBuf mapValue = encodeMapValue(value);
         CacheKey cacheKey = toCacheKey(mapKey);
         byte[] entryId = generateLogEntryId(cacheKey.getKeyHash());
         ByteBuf msg = createSyncMessage(mapKey, mapValue, cacheKey);
@@ -444,7 +444,7 @@ public class RedissonLocalCachedMap<K, V> extends RedissonMap<K, V> implements R
                 + "end;"
                 + "return v; ",
                 Arrays.<Object>asList(getName(), invalidationTopic.getChannelNames().get(0), getUpdatesLogName()), 
-                mapKey, encodeMapValue(value), msg, invalidateEntryOnChange, System.currentTimeMillis(), entryId);
+                mapKey, mapValue, msg, invalidateEntryOnChange, System.currentTimeMillis(), entryId);
     }
 
     protected ByteBuf createSyncMessage(ByteBuf mapKey, ByteBuf mapValue, CacheKey cacheKey) {
@@ -481,11 +481,11 @@ public class RedissonLocalCachedMap<K, V> extends RedissonMap<K, V> implements R
     
     @Override
     public void destroy() {
-        if (invalidationListenerId != 0) {
-            invalidationTopic.removeListener(invalidationListenerId);
+        if (syncListenerId != 0) {
+            invalidationTopic.removeListener(syncListenerId);
         }
-        if (invalidationStatusListenerId != 0) {
-            invalidationTopic.removeListener(invalidationStatusListenerId);
+        if (reconnectionListenerId != 0) {
+            invalidationTopic.removeListener(reconnectionListenerId);
         }
     }
 
@@ -679,267 +679,11 @@ public class RedissonLocalCachedMap<K, V> extends RedissonMap<K, V> implements R
     }
 
     @Override
-    public Set<K> keySet(String pattern) {
-        return new KeySet(pattern);
-    }
-
-    @Override
-    public Collection<V> values(String keyPattern) {
-        return new Values(keyPattern);
-    }
-
-    @Override
-    public Set<java.util.Map.Entry<K, V>> entrySet(String keyPattern) {
-        return new EntrySet(keyPattern);
-    }
-
-    private Iterator<Map.Entry<K,V>> cacheEntrySetIterator() {
-        final Iterator<Map.Entry<CacheKey, CacheValue>> iter = cache.entrySet().iterator();
-        
-        return new Iterator<Map.Entry<K,V>>() {
-
-            @Override
-            public boolean hasNext() {
-                return iter.hasNext();
-            }
-
-            @Override
-            public java.util.Map.Entry<K, V> next() {
-                Map.Entry<CacheKey, CacheValue> entry = iter.next();
-                return new AbstractMap.SimpleEntry(entry.getValue().getKey(), entry.getValue().getValue());
-            }
-            
-            @Override
-            public void remove() {
-                iter.remove();
-            }
-            
-        };
-    }
-    
-    private Iterator<K> cacheKeySetIterator() {
-        final Iterator<CacheValue> iter = cache.values().iterator();
-        
-        return new Iterator<K>() {
-
-            @Override
-            public boolean hasNext() {
-                return iter.hasNext();
-            }
-
-            @Override
-            public K next() {
-                CacheValue value = iter.next();
-                return (K) value.getKey();
-            }
-            
-            @Override
-            public void remove() {
-                iter.remove();
-            }
-            
-        };
-    }
-
-    
-    final class KeySet extends AbstractSet<K> {
-
-        private final String pattern;
-        
-        public KeySet(String pattern) {
-            this.pattern = pattern;
-        }
-
-        @Override
-        public Iterator<K> iterator() {
-            return new CompositeIterable<K>(cacheKeySetIterator(), RedissonLocalCachedMap.super.keySet(pattern).iterator()) {
-
-                @Override
-                boolean isCacheContains(Object object) {
-                    CacheKey cacheKey = toCacheKey(object);
-                    return cache.containsKey(cacheKey);
-                }
-                
-            };
-        }
-
-        @Override
-        public boolean contains(Object o) {
-            return RedissonLocalCachedMap.this.containsKey(o);
-        }
-
-        @Override
-        public boolean remove(Object o) {
-            return RedissonLocalCachedMap.this.remove(o) != null;
-        }
-
-        @Override
-        public int size() {
-            return RedissonLocalCachedMap.this.size();
-        }
-
-        @Override
-        public void clear() {
-            RedissonLocalCachedMap.this.clear();
-        }
-
-    }
-
-    final class Values extends AbstractCollection<V> {
-
-        private final String keyPattern;
-        
-        public Values(String keyPattern) {
-            this.keyPattern = keyPattern;
-        }
-
-        @Override
-        public Iterator<V> iterator() {
-            final Iterator<Map.Entry<K, V>> iter = RedissonLocalCachedMap.this.entrySet(keyPattern).iterator();
-            return new Iterator<V>() {
-
-                @Override
-                public boolean hasNext() {
-                    return iter.hasNext();
-                }
-
-                @Override
-                public V next() {
-                    return iter.next().getValue();
-                }
-                
-                @Override
-                public void remove() {
-                    iter.remove();
-                }
-            };
-        }
-
-        @Override
-        public boolean contains(Object o) {
-            return RedissonLocalCachedMap.this.containsValue(o);
-        }
-
-        @Override
-        public int size() {
-            return RedissonLocalCachedMap.this.size();
-        }
-
-        @Override
-        public void clear() {
-            RedissonLocalCachedMap.this.clear();
-        }
-
-    }
-
-    final class EntrySet extends AbstractSet<Map.Entry<K,V>> {
-
-        private final String keyPattern;
-        
-        public EntrySet(String keyPattern) {
-            this.keyPattern = keyPattern;
-        }
-
-        public final Iterator<Map.Entry<K,V>> iterator() {
-            return new CompositeIterable<Map.Entry<K,V>>(cacheEntrySetIterator(), RedissonLocalCachedMap.super.entrySet(keyPattern).iterator()) {
-
-                @Override
-                boolean isCacheContains(Map.Entry<K,V> entry) {
-                    CacheKey cacheKey = toCacheKey(entry.getKey());
-                    return cache.containsKey(cacheKey);
-                }
-                
-            };
-        }
-
-        public final boolean contains(Object o) {
-            if (!(o instanceof Map.Entry))
-                return false;
-            Map.Entry<?,?> e = (Map.Entry<?,?>) o;
-            Object key = e.getKey();
-            V value = get(key);
-            return value != null && value.equals(e);
-        }
-
-        public final boolean remove(Object o) {
-            if (o instanceof Map.Entry) {
-                Map.Entry<?,?> e = (Map.Entry<?,?>) o;
-                Object key = e.getKey();
-                Object value = e.getValue();
-                return RedissonLocalCachedMap.super.remove(key, value);
-            }
-            return false;
-        }
-
-        public final int size() {
-            return RedissonLocalCachedMap.this.size();
-        }
-
-        public final void clear() {
-            RedissonLocalCachedMap.this.clear();
-        }
-
-    }
-
-    abstract class CompositeIterable<T> implements Iterator<T> {
-
-        private T currentObject;
-        private Iterator<T> cacheIterator;
-        private Iterator<T> mapIterator;
-
-        public CompositeIterable(Iterator<T> cacheIterator, Iterator<T> mapIterator) {
-            this.cacheIterator = cacheIterator;
-            this.mapIterator = mapIterator;
-        }
-
-        @Override
-        public boolean hasNext() {
-            if (!cacheIterator.hasNext()) {
-                while (true) {
-                    if (mapIterator.hasNext()) {
-                        currentObject = mapIterator.next();
-                        if (!isCacheContains(currentObject)) {
-                            return true;
-                        }
-                    } else {
-                        break;
-                    }
-                }
-                return false;
-            }
-            return true;
-        }
-
-        abstract boolean isCacheContains(T object);
-
-        @Override
-        public T next() {
-            if (currentObject != null) {
-                T val = currentObject;
-                currentObject = null;
-                return val;
-            }
-            if (!hasNext()) {
-                throw new NoSuchElementException();
-            }
-            return cacheIterator.next();
-        }
-
-        @Override
-        public void remove() {
-            if (currentObject != null) {
-                mapIterator.remove();
-                currentObject = null;
-                return;
-            }
-
-            cacheIterator.remove();
-        }
-
-    }
-    
-    @Override
     public RFuture<Map<K, V>> getAllAsync(Set<K> keys) {
+        if (keys.isEmpty()) {
+            return RedissonPromise.newSucceededFuture(Collections.<K, V>emptyMap());
+        }
+
         final Map<K, V> result = new HashMap<K, V>();
         Set<K> mapKeys = new HashSet<K>(keys);
         for (Iterator<K> iterator = mapKeys.iterator(); iterator.hasNext();) {
@@ -952,7 +696,7 @@ public class RedissonLocalCachedMap<K, V> extends RedissonMap<K, V> implements R
             }
         }
         
-        final RPromise<Map<K, V>> promise = newPromise();
+        final RPromise<Map<K, V>> promise = new RedissonPromise<Map<K, V>>();
         RFuture<Map<K, V>> future = super.getAllAsync(mapKeys);
         future.addListener(new FutureListener<Map<K, V>>() {
             @Override
@@ -983,19 +727,16 @@ public class RedissonLocalCachedMap<K, V> extends RedissonMap<K, V> implements R
     }
 
     @Override
-    public RFuture<Void> putAllOperationAsync(final Map<? extends K, ? extends V> map) {
+    protected RFuture<Void> putAllOperationAsync(final Map<? extends K, ? extends V> map) {
         List<Object> params = new ArrayList<Object>(map.size()*3);
         params.add(invalidateEntryOnChange);
         params.add(map.size()*2);
         byte[][] hashes = new byte[map.size()][];
         int i = 0;
-        int payloadSize = 0;
         
         for (java.util.Map.Entry<? extends K, ? extends V> t : map.entrySet()) {
             ByteBuf mapKey = encodeMapKey(t.getKey());
-            payloadSize += mapKey.readableBytes();
             ByteBuf mapValue = encodeMapValue(t.getValue());
-            payloadSize += mapValue.readableBytes();
             params.add(mapKey);
             params.add(mapValue);
             CacheKey cacheKey = toCacheKey(mapKey);
@@ -1003,7 +744,7 @@ public class RedissonLocalCachedMap<K, V> extends RedissonMap<K, V> implements R
             i++;
         }
 
-        ByteBuf msgEncoded;
+        ByteBuf msgEncoded = null;
         if (syncStrategy == SyncStrategy.UPDATE) {
             List<LocalCachedMapUpdate.Entry> entries = new ArrayList<LocalCachedMapUpdate.Entry>();
             for (int j = 2; j < params.size(); j += 2) {
@@ -1023,23 +764,25 @@ public class RedissonLocalCachedMap<K, V> extends RedissonMap<K, V> implements R
                 byte[] entryId = generateLogEntryId(hash);
                 params.add(time);
                 params.add(entryId);
-                payloadSize += entryId.length + 8;
             }
         }
         
-        params.add(msgEncoded);
-        payloadSize += msgEncoded.readableBytes();
+        if (msgEncoded != null) {
+            params.add(msgEncoded);
+        }
 
-        log.debug("Payload size passed to putAll method: {}", payloadSize);
-
-        final RPromise<Void> result = newPromise();
+        final RPromise<Void> result = new RedissonPromise<Void>();
         RFuture<Void> future = commandExecutor.evalWriteAsync(getName(), codec, RedisCommands.EVAL_VOID,
-                "redis.call('hmset', KEYS[1], unpack(ARGV, 3, tonumber(ARGV[2]) + 2));"
+                  "for i=3, tonumber(ARGV[2]) + 2, 5000 do "
+                    + "redis.call('hmset', KEYS[1], unpack(ARGV, i, math.min(i+4999, tonumber(ARGV[2]) + 2))); "
+                + "end; "
                 + "if ARGV[1] == '1' then "
                     + "redis.call('publish', KEYS[2], ARGV[#ARGV]); "
                 + "end;"
                 + "if ARGV[1] == '2' then "
-                    + "redis.call('zadd', KEYS[3], unpack(ARGV, tonumber(ARGV[2]) + 2 + 1, #ARGV - 1));"
+                    + "for i=tonumber(ARGV[2]) + 2 + 1, #ARGV - 1, 5000 do "
+                        + "redis.call('hmset', KEYS[3], unpack(ARGV, i, math.min(i+4999, #ARGV - 1))); "
+                    + "end; "
                     + "redis.call('publish', KEYS[2], ARGV[#ARGV]); "
                 + "end;",
                 Arrays.<Object>asList(getName(), invalidationTopic.getChannelNames().get(0), getUpdatesLogName()),
@@ -1049,6 +792,7 @@ public class RedissonLocalCachedMap<K, V> extends RedissonMap<K, V> implements R
             @Override
             public void operationComplete(Future<Void> future) throws Exception {
                 if (!future.isSuccess()) {
+                    result.tryFailure(future.cause());
                     return;
                 }
                 
@@ -1124,7 +868,7 @@ public class RedissonLocalCachedMap<K, V> extends RedissonMap<K, V> implements R
             result.add((V) value.getValue());
         }
         
-        final RPromise<Collection<V>> promise = newPromise();
+        final RPromise<Collection<V>> promise = new RedissonPromise<Collection<V>>();
         RFuture<Collection<V>> future = commandExecutor.evalReadAsync(getName(), codec, ALL_KEYS,
                 "local entries = redis.call('hgetall', KEYS[1]); "
               + "local result = {};"
@@ -1171,13 +915,14 @@ public class RedissonLocalCachedMap<K, V> extends RedissonMap<K, V> implements R
             result.put((K)value.getKey(), (V)value.getValue());
         }
 
-        final RPromise<Map<K, V>> promise = newPromise();
+        final RPromise<Map<K, V>> promise = new RedissonPromise<Map<K, V>>();
         RFuture<Map<K, V>> future = readAll(ALL_MAP, mapKeys, result);
         
         future.addListener(new FutureListener<Map<K, V>>() {
             @Override
             public void operationComplete(Future<Map<K, V>> future) throws Exception {
                 if (!future.isSuccess()) {
+                    promise.tryFailure(future.cause());
                     return;
                 }
                 
@@ -1204,6 +949,30 @@ public class RedissonLocalCachedMap<K, V> extends RedissonMap<K, V> implements R
             cache.put(cacheKey, new CacheValue(entry.getKey(), entry.getValue()));
         }
     }
+    
+    @Override
+    public void clearLocalCache() {
+        get(clearLocalCacheAsync());
+    }
+    
+    @Override
+    public RFuture<Void> clearLocalCacheAsync() {
+        final RPromise<Void> result = new RedissonPromise<Void>();
+        RFuture<Long> future = invalidationTopic.publishAsync(new LocalCachedMapClear());
+        future.addListener(new FutureListener<Long>() {
+            @Override
+            public void operationComplete(Future<Long> future) throws Exception {
+                if (!future.isSuccess()) {
+                    result.tryFailure(future.cause());
+                    return;
+                }
+
+                result.trySuccess(null);
+            }
+        });
+        
+        return result;
+    }
 
     @Override
     public RFuture<Set<Entry<K, V>>> readAllEntrySetAsync() {
@@ -1214,13 +983,14 @@ public class RedissonLocalCachedMap<K, V> extends RedissonMap<K, V> implements R
             result.add(new AbstractMap.SimpleEntry<K, V>((K)value.getKey(), (V)value.getValue()));
         }
 
-        final RPromise<Set<Entry<K, V>>> promise = newPromise();
+        final RPromise<Set<Entry<K, V>>> promise = new RedissonPromise<Set<Entry<K, V>>>();
         RFuture<Set<Entry<K, V>>> future = readAll(ALL_ENTRIES, mapKeys, result);
         
         future.addListener(new FutureListener<Set<Entry<K, V>>>() {
             @Override
             public void operationComplete(Future<Set<Entry<K, V>>> future) throws Exception {
                 if (!future.isSuccess()) {
+                    promise.tryFailure(future.cause());
                     return;
                 }
                 
@@ -1335,8 +1105,7 @@ public class RedissonLocalCachedMap<K, V> extends RedissonMap<K, V> implements R
 
     @Override
     public RFuture<Boolean> replaceAsync(final K key, V oldValue, final V newValue) {
-        final ByteBuf keyState = encodeMapKey(key);
-        final CacheKey cacheKey = toCacheKey(keyState);
+        final CacheKey cacheKey = toCacheKey(key);
         
         RFuture<Boolean> future = super.replaceAsync(key, oldValue, newValue);
         future.addListener(new FutureListener<Boolean>() {
@@ -1382,8 +1151,7 @@ public class RedissonLocalCachedMap<K, V> extends RedissonMap<K, V> implements R
     
     @Override
     public RFuture<Boolean> removeAsync(Object key, Object value) {
-        final ByteBuf keyState = encodeMapKey(key);
-        final CacheKey cacheKey = toCacheKey(keyState);
+        final CacheKey cacheKey = toCacheKey(key);
         RFuture<Boolean> future = super.removeAsync(key, value);
 
         future.addListener(new FutureListener<Boolean>() {

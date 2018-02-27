@@ -1,5 +1,5 @@
 /**
- * Copyright 2016 Nikita Koksharov
+ * Copyright 2018 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -76,10 +76,10 @@ public class RedissonObjectBuilder {
     private final RedissonClient redisson;
     private final ReferenceCodecProvider codecProvider;
     
-    public RedissonObjectBuilder(RedissonClient redisson, ReferenceCodecProvider codecProvider) {
+    public RedissonObjectBuilder(RedissonClient redisson) {
         super();
         this.redisson = redisson;
-        this.codecProvider = codecProvider;
+        this.codecProvider = redisson.getConfig().getReferenceCodecProvider();
     }
 
     public void store(RObject ar, String fieldName, RMap<String, Object> liveMap) {

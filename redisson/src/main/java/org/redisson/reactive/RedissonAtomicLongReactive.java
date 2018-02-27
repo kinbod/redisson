@@ -1,5 +1,5 @@
 /**
- * Copyright 2016 Nikita Koksharov
+ * Copyright 2018 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,7 +23,6 @@ import org.redisson.api.RFuture;
 import org.redisson.command.CommandReactiveExecutor;
 
 import reactor.fn.Supplier;
-import reactor.rx.Streams;
 
 /**
  * Distributed alternative to the {@link java.util.concurrent.atomic.AtomicLong}
@@ -127,7 +126,7 @@ public class RedissonAtomicLongReactive extends RedissonExpirableReactive implem
     }
 
     public String toString() {
-        return Long.toString(Streams.create(get()).next().poll());
+        return instance.toString();
     }
 
 }

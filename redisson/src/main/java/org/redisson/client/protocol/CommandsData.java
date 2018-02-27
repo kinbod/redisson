@@ -1,5 +1,5 @@
 /**
- * Copyright 2016 Nikita Koksharov
+ * Copyright 2018 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,25 +29,31 @@ public class CommandsData implements QueueCommand {
 
     private final List<CommandData<?, ?>> commands;
     private final RPromise<Void> promise;
-    private final boolean noResult;
+    private final boolean skipResult;
+    private final boolean atomic;
 
     public CommandsData(RPromise<Void> promise, List<CommandData<?, ?>> commands) {
-        this(promise, commands, false);
+        this(promise, commands, false, false);
     }
     
-    public CommandsData(RPromise<Void> promise, List<CommandData<?, ?>> commands, boolean noResult) {
+    public CommandsData(RPromise<Void> promise, List<CommandData<?, ?>> commands, boolean skipResult, boolean atomic) {
         super();
         this.promise = promise;
         this.commands = commands;
-        this.noResult = noResult;
+        this.skipResult = skipResult;
+        this.atomic = atomic;
     }
 
     public RPromise<Void> getPromise() {
         return promise;
     }
 
-    public boolean isNoResult() {
-        return noResult;
+    public boolean isAtomic() {
+        return atomic;
+    }
+    
+    public boolean isSkipResult() {
+        return skipResult;
     }
     
     public List<CommandData<?, ?>> getCommands() {

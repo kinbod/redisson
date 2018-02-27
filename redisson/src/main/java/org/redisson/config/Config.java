@@ -1,5 +1,5 @@
 /**
- * Copyright 2016 Nikita Koksharov
+ * Copyright 2018 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,6 +27,7 @@ import org.redisson.codec.DefaultReferenceCodecProvider;
 import org.redisson.codec.JsonJacksonCodec;
 import org.redisson.codec.ReferenceCodecProvider;
 import org.redisson.connection.ConnectionManager;
+import org.redisson.connection.AddressResolverGroupFactory;
 import org.redisson.connection.ReplicatedConnectionManager;
 
 import io.netty.channel.EventLoopGroup;
@@ -78,7 +79,7 @@ public class Config {
      */
     private boolean referenceEnabled = true;
     
-    private boolean useLinuxNativeEpoll;
+    private TransportMode transportMode = TransportMode.NIO;
 
     private EventLoopGroup eventLoopGroup;
 
@@ -86,6 +87,11 @@ public class Config {
     
     private boolean keepPubSubOrder = true;
     
+    /**
+     * AddressResolverGroupFactory switch between default and round robin
+     */
+    private AddressResolverGroupFactory addressResolverGroupFactory = AddressResolverGroupFactory.DNS_ADDRESS_RESOLVER_GROUP;
+
     public Config() {
     }
 
@@ -106,6 +112,9 @@ public class Config {
         setReferenceCodecProvider(oldConf.getReferenceCodecProvider());
         setReferenceEnabled(oldConf.isReferenceEnabled());
         setEventLoopGroup(oldConf.getEventLoopGroup());
+        setTransportMode(oldConf.getTransportMode());
+        setAddressResolverGroupFactory(oldConf.getAddressResolverGroupFactory());
+
         if (oldConf.getSingleServerConfig() != null) {
             setSingleServerConfig(new SingleServerConfig(oldConf.getSingleServerConfig()));
         }
@@ -455,23 +464,36 @@ public class Config {
             throw new IllegalStateException("Replication servers config already used!");
         }
     }
-    
 
     /**
-     * Activates an unix socket if servers binded to loopback interface.
-     * Also used for epoll transport activation.
-     * <b>netty-transport-native-epoll</b> library should be in classpath
+     * Transport mode
+     * <p>
+     * Default is {@link TransportMode#NIO}
      *
-     * @param useLinuxNativeEpoll flag
+     * @param transportMode param
      * @return config
      */
+    public Config setTransportMode(TransportMode transportMode) {
+        this.transportMode = transportMode;
+        return this;
+    }
+    public TransportMode getTransportMode() {
+        return transportMode;
+    }
+    
+    /**
+     * Use {@link #setTransportMode(TransportMode)}
+     */
+    @Deprecated
     public Config setUseLinuxNativeEpoll(boolean useLinuxNativeEpoll) {
-        this.useLinuxNativeEpoll = useLinuxNativeEpoll;
+        if (useLinuxNativeEpoll) {
+            setTransportMode(TransportMode.EPOLL);
+        }
         return this;
     }
 
     public boolean isUseLinuxNativeEpoll() {
-        return useLinuxNativeEpoll;
+        return getTransportMode() == TransportMode.EPOLL;
     }
 
     /**
@@ -515,12 +537,13 @@ public class Config {
 
     /**
      * Use external EventLoopGroup. EventLoopGroup processes all
-     * Netty connection tied with Redis servers. Each EventLoopGroup creates
+     * Netty connection tied to Redis servers. Each EventLoopGroup creates
      * own threads and each Redisson client creates own EventLoopGroup by default.
      * So if there are multiple Redisson instances in same JVM
      * it would be useful to share one EventLoopGroup among them.
      * <p>
-     * Only {@link io.netty.channel.epoll.EpollEventLoopGroup} or
+     * Only {@link io.netty.channel.epoll.EpollEventLoopGroup}, 
+     * {@link io.netty.channel.kqueue.KQueueEventLoopGroup}
      * {@link io.netty.channel.nio.NioEventLoopGroup} can be used.
      * <p>
      * The caller is responsible for closing the EventLoopGroup.
@@ -575,6 +598,17 @@ public class Config {
         return keepPubSubOrder;
     }
 
+    /**
+     * Used to switch between {@link io.netty.resolver.dns.DnsAddressResolverGroup} implementations.
+     * Switch to round robin {@link io.netty.resolver.dns.RoundRobinDnsAddressResolverGroup} when you need to optimize the url resolving.
+     * @param addressResolverGroupFactory
+     */
+    public void setAddressResolverGroupFactory(AddressResolverGroupFactory addressResolverGroupFactory) {
+        this.addressResolverGroupFactory = addressResolverGroupFactory;
+    }
+    public AddressResolverGroupFactory getAddressResolverGroupFactory() {
+        return addressResolverGroupFactory;
+    }
 
     /**
      * Read config object stored in JSON format from <code>String</code>

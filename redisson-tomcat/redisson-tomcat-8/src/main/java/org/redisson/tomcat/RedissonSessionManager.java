@@ -1,5 +1,5 @@
 /**
- * Copyright 2016 Nikita Koksharov
+ * Copyright 2018 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,6 +18,8 @@ package org.redisson.tomcat;
 import java.io.File;
 import java.io.IOException;
 import java.util.Map;
+
+import javax.servlet.http.HttpSession;
 
 import org.apache.catalina.LifecycleException;
 import org.apache.catalina.LifecycleState;
@@ -40,6 +42,7 @@ import org.redisson.config.Config;
 public class RedissonSessionManager extends ManagerBase {
 
     public enum ReadMode {REDIS, MEMORY}
+    public enum UpdateMode {DEFAULT, AFTER_REQUEST}
     
     private final Log log = LogFactory.getLog(RedissonSessionManager.class);
     
@@ -47,7 +50,16 @@ public class RedissonSessionManager extends ManagerBase {
     private String configPath;
     
     private ReadMode readMode = ReadMode.MEMORY;
+    private UpdateMode updateMode = UpdateMode.DEFAULT;
     
+    public String getUpdateMode() {
+        return updateMode.toString();
+    }
+
+    public void setUpdateMode(String updateMode) {
+        this.updateMode = UpdateMode.valueOf(updateMode);
+    }
+
     public String getReadMode() {
         return readMode.toString();
     }
@@ -119,13 +131,16 @@ public class RedissonSessionManager extends ManagerBase {
             session.endAccess();
             return session;
         }
+
+        result.access();
+        result.endAccess();
         
         return result;
     }
     
     @Override
     public Session createEmptySession() {
-        return new RedissonSession(this, readMode);
+        return new RedissonSession(this, readMode, updateMode);
     }
     
     @Override
@@ -145,6 +160,10 @@ public class RedissonSessionManager extends ManagerBase {
     protected void startInternal() throws LifecycleException {
         super.startInternal();
         redisson = buildClient();
+        
+        if (updateMode == UpdateMode.AFTER_REQUEST) {
+            getEngine().getPipeline().addValve(new UpdateValve(this));
+        }
 
         setState(LifecycleState.STARTING);
     }
@@ -189,6 +208,17 @@ public class RedissonSessionManager extends ManagerBase {
             throw new LifecycleException(e);
         }
         
+    }
+
+    public void store(HttpSession session) throws IOException {
+        if (session == null) {
+            return;
+        }
+        
+        if (updateMode == UpdateMode.AFTER_REQUEST) {
+            RedissonSession sess = (RedissonSession) findSession(session.getId());
+            sess.save();            
+        }
     }
     
 }

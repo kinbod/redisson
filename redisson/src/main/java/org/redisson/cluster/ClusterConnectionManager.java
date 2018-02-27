@@ -1,5 +1,5 @@
 /**
- * Copyright 2016 Nikita Koksharov
+ * Copyright 2018 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,9 +15,11 @@
  */
 package org.redisson.cluster;
 
+import java.net.InetSocketAddress;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -53,9 +55,11 @@ import org.redisson.connection.MasterSlaveEntry;
 import org.redisson.connection.SingleEntry;
 import org.redisson.misc.RPromise;
 import org.redisson.misc.RedissonPromise;
+import org.redisson.misc.URIBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import io.netty.resolver.AddressResolver;
 import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.FutureListener;
 import io.netty.util.concurrent.ScheduledFuture;
@@ -70,8 +74,6 @@ public class ClusterConnectionManager extends MasterSlaveConnectionManager {
 
     private final Logger log = LoggerFactory.getLogger(getClass());
 
-    private final Map<URI, RedisConnection> nodeConnections = PlatformDependent.newConcurrentHashMap();
-
     private final ConcurrentMap<Integer, ClusterPartition> lastPartitions = PlatformDependent.newConcurrentHashMap();
 
     private ScheduledFuture<?> monitorFuture;
@@ -80,18 +82,33 @@ public class ClusterConnectionManager extends MasterSlaveConnectionManager {
     
     private RedisStrictCommand<List<ClusterNodeInfo>> clusterNodesCommand;
     
+    private boolean isConfigEndpoint;
+
+    private AddressResolver<InetSocketAddress> resolver;
+    
     public ClusterConnectionManager(ClusterServersConfig cfg, Config config) {
         super(config);
 
         this.config = create(cfg);
         initTimer(this.config);
-
+        
         Throwable lastException = null;
         List<String> failedMasters = new ArrayList<String>();
         for (URI addr : cfg.getNodeAddresses()) {
-            RFuture<RedisConnection> connectionFuture = connect(cfg, addr);
+            RFuture<RedisConnection> connectionFuture = connectToNode(cfg, addr, null);
             try {
                 RedisConnection connection = connectionFuture.syncUninterruptibly().getNow();
+
+                if (cfg.getNodeAddresses().size() == 1) {
+                    this.resolver = resolverGroup.getResolver(getGroup().next());
+                    Future<List<InetSocketAddress>> addrsFuture = resolver.resolveAll(InetSocketAddress.createUnresolved(addr.getHost(), addr.getPort()));
+                    List<InetSocketAddress> allAddrs = addrsFuture.syncUninterruptibly().getNow();
+                    if (allAddrs.size() > 1) {
+                        isConfigEndpoint = true;
+                    } else {
+                        resolver.close();
+                    }
+                }
                 
                 clusterNodesCommand = RedisCommands.CLUSTER_NODES;
                 if ("rediss".equals(addr.getScheme())) {
@@ -167,43 +184,6 @@ public class ClusterConnectionManager extends MasterSlaveConnectionManager {
         return result;
     }
     
-    private void close(RedisConnection conn) {
-        if (nodeConnections.values().remove(conn)) {
-            conn.closeAsync();
-        }
-    }
-    
-    private RFuture<RedisConnection> connect(ClusterServersConfig cfg, final URI addr) {
-        RedisConnection connection = nodeConnections.get(addr);
-        if (connection != null) {
-            return newSucceededFuture(connection);
-        }
-
-        RedisClient client = createClient(NodeType.MASTER, addr, cfg.getConnectTimeout(), cfg.getRetryInterval() * cfg.getRetryAttempts());
-        final RPromise<RedisConnection> result = newPromise();
-        RFuture<RedisConnection> future = client.connectAsync();
-        future.addListener(new FutureListener<RedisConnection>() {
-            @Override
-            public void operationComplete(Future<RedisConnection> future) throws Exception {
-                if (!future.isSuccess()) {
-                    result.tryFailure(future.cause());
-                    return;
-                }
-
-                RedisConnection connection = future.getNow();
-                        if (connection.isActive()) {
-                            nodeConnections.put(addr, connection);
-                            result.trySuccess(connection);
-                        } else {
-                            connection.closeAsync();
-                            result.tryFailure(new RedisException("Connection to " + connection.getRedisClient().getAddr() + " is not active!"));
-                        }
-                    }
-                });
-
-        return result;
-    }
-
     private RFuture<Collection<RFuture<Void>>> addMasterEntry(final ClusterPartition partition, final ClusterServersConfig cfg) {
         if (partition.isMasterFail()) {
             RedisException e = new RedisException("Failed to add master: " +
@@ -214,11 +194,11 @@ public class ClusterConnectionManager extends MasterSlaveConnectionManager {
                 e = new RedisException("Failed to add master: " +
                         partition.getMasterAddress() + ". Reason - server has FAIL flag");
             }
-            return newFailedFuture(e);
+            return RedissonPromise.newFailedFuture(e);
         }
 
-        final RPromise<Collection<RFuture<Void>>> result = newPromise();
-        RFuture<RedisConnection> connectionFuture = connect(cfg, partition.getMasterAddress());
+        final RPromise<Collection<RFuture<Void>>> result = new RedissonPromise<Collection<RFuture<Void>>>();
+        RFuture<RedisConnection> connectionFuture = connectToNode(cfg, partition.getMasterAddress(), null);
         connectionFuture.addListener(new FutureListener<RedisConnection>() {
             @Override
             public void operationComplete(Future<RedisConnection> future) throws Exception {
@@ -310,28 +290,52 @@ public class ClusterConnectionManager extends MasterSlaveConnectionManager {
         monitorFuture = group.schedule(new Runnable() {
             @Override
             public void run() {
-                AtomicReference<Throwable> lastException = new AtomicReference<Throwable>();
-                Iterator<URI> nodesIterator = iterator;
-                if (nodesIterator == null) {
-                    List<URI> nodes = new ArrayList<URI>();
-                    List<URI> slaves = new ArrayList<URI>();
-                    
-                    for (ClusterPartition partition : getLastPartitions()) {
-                        if (!partition.isMasterFail()) {
-                            nodes.add(partition.getMasterAddress());
+                if (isConfigEndpoint) {
+                    final URI uri = cfg.getNodeAddresses().iterator().next();
+                    Future<List<InetSocketAddress>> allNodes = resolver.resolveAll(InetSocketAddress.createUnresolved(uri.getHost(), uri.getPort()));
+                    allNodes.addListener(new FutureListener<List<InetSocketAddress>>() {
+                        @Override
+                        public void operationComplete(Future<List<InetSocketAddress>> future) throws Exception {
+                            AtomicReference<Throwable> lastException = new AtomicReference<Throwable>(future.cause());
+                            if (!future.isSuccess()) {
+                                checkClusterState(cfg, Collections.<URI>emptyList().iterator(), lastException);
+                                return;
+                            }
+                            
+                            List<URI> nodes = new ArrayList<URI>();
+                            for (InetSocketAddress addr : future.getNow()) {
+                                URI node = URIBuilder.create(uri.getScheme() + "://" + addr.getAddress().getHostAddress() + ":" + addr.getPort());
+                                nodes.add(node);
+                            }
+                            
+                            Iterator<URI> nodesIterator = nodes.iterator();
+                            checkClusterState(cfg, nodesIterator, lastException);
                         }
-    
-                        Set<URI> partitionSlaves = new HashSet<URI>(partition.getSlaveAddresses());
-                        partitionSlaves.removeAll(partition.getFailedSlaveAddresses());
-                        slaves.addAll(partitionSlaves);
+                    });
+                } else {
+                    AtomicReference<Throwable> lastException = new AtomicReference<Throwable>();
+                    Iterator<URI> nodesIterator = iterator;
+                    if (nodesIterator == null) {
+                        List<URI> nodes = new ArrayList<URI>();
+                        List<URI> slaves = new ArrayList<URI>();
+                        
+                        for (ClusterPartition partition : getLastPartitions()) {
+                            if (!partition.isMasterFail()) {
+                                nodes.add(partition.getMasterAddress());
+                            }
+                            
+                            Set<URI> partitionSlaves = new HashSet<URI>(partition.getSlaveAddresses());
+                            partitionSlaves.removeAll(partition.getFailedSlaveAddresses());
+                            slaves.addAll(partitionSlaves);
+                        }
+                        // master nodes first
+                        nodes.addAll(slaves);
+                        
+                        nodesIterator = nodes.iterator();
                     }
-                    // master nodes first
-                    nodes.addAll(slaves);
                     
-                    nodesIterator = nodes.iterator();
+                    checkClusterState(cfg, nodesIterator, lastException);
                 }
-
-                checkClusterState(cfg, nodesIterator, lastException);
             }
 
         }, cfg.getScanInterval(), TimeUnit.MILLISECONDS);
@@ -347,7 +351,7 @@ public class ClusterConnectionManager extends MasterSlaveConnectionManager {
             return;
         }
         final URI uri = iterator.next();
-        RFuture<RedisConnection> connectionFuture = connect(cfg, uri);
+        RFuture<RedisConnection> connectionFuture = connectToNode(cfg, uri, null);
         connectionFuture.addListener(new FutureListener<RedisConnection>() {
             @Override
             public void operationComplete(Future<RedisConnection> future) throws Exception {
@@ -371,7 +375,7 @@ public class ClusterConnectionManager extends MasterSlaveConnectionManager {
             public void operationComplete(Future<List<ClusterNodeInfo>> future) throws Exception {
                 if (!future.isSuccess()) {
                     log.error("Can't execute CLUSTER_NODES with " + connection.getRedisClient().getAddr(), future.cause());
-                    close(connection);
+                    closeNodeConnection(connection);
                     getShutdownLatch().release();
                     scheduleClusterChangeCheck(cfg, iterator);
                     return;
@@ -529,10 +533,10 @@ public class ClusterConnectionManager extends MasterSlaveConnectionManager {
         }
         
         if (newMasters.isEmpty()) {
-            return newSucceededFuture(null);
+            return RedissonPromise.newSucceededFuture(null);
         }
         
-        final RPromise<Void> result = newPromise();
+        final RPromise<Void> result = new RedissonPromise<Void>();
         final AtomicInteger masters = new AtomicInteger(newMasters.size());
         final Queue<RFuture<Void>> futures = new ConcurrentLinkedQueue<RFuture<Void>>(); 
         for (ClusterPartition newPart : newMasters) {
@@ -739,15 +743,7 @@ public class ClusterConnectionManager extends MasterSlaveConnectionManager {
     public void shutdown() {
         monitorFuture.cancel(true);
         
-        List<RFuture<Void>> futures = new ArrayList<RFuture<Void>>();
-        for (RedisConnection connection : nodeConnections.values()) {
-            RFuture<Void> future = connection.getRedisClient().shutdownAsync();
-            futures.add(future);
-        }
-        
-        for (RFuture<Void> future : futures) {
-            future.syncUninterruptibly();
-        }
+        closeNodeConnections();
         super.shutdown();
     }
 

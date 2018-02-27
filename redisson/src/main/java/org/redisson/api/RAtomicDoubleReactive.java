@@ -1,5 +1,5 @@
 /**
- * Copyright 2016 Nikita Koksharov
+ * Copyright 2018 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,26 +13,35 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.redisson.reactive;
-
-import java.net.InetSocketAddress;
+package org.redisson.api;
 
 import org.reactivestreams.Publisher;
-import org.redisson.client.RedisClient;
-import org.redisson.client.protocol.decoder.MapScanResult;
-import org.redisson.client.protocol.decoder.ScanObjectEntry;
 
 /**
  * 
  * @author Nikita Koksharov
  *
- * @param <K> key type
- * @param <V> value type
  */
-interface MapReactive<K, V> {
+public interface RAtomicDoubleReactive extends RExpirableReactive {
 
-    Publisher<MapScanResult<ScanObjectEntry, ScanObjectEntry>> scanIteratorReactive(RedisClient client, long startPos);
-    
-    Publisher<V> put(K key, V value);
-    
+    Publisher<Boolean> compareAndSet(double expect, double update);
+
+    Publisher<Double> addAndGet(double delta);
+
+    Publisher<Double> decrementAndGet();
+
+    Publisher<Double> get();
+
+    Publisher<Double> getAndAdd(double delta);
+
+    Publisher<Double> getAndSet(double newValue);
+
+    Publisher<Double> incrementAndGet();
+
+    Publisher<Double> getAndIncrement();
+
+    Publisher<Double> getAndDecrement();
+
+    Publisher<Void> set(double newValue);
+
 }

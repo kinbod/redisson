@@ -1,5 +1,5 @@
 /**
- * Copyright 2016 Nikita Koksharov
+ * Copyright 2018 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -202,19 +202,16 @@ public class RedissonBitSet extends RedissonExpirable implements RBitSet {
 
     @Override
     public RFuture<Void> setAsync(long fromIndex, long toIndex, boolean value) {
-        if (value) {
-            return setAsync(fromIndex, toIndex);
+        CommandBatchService executorService = new CommandBatchService(commandExecutor.getConnectionManager());
+        for (long i = fromIndex; i < toIndex; i++) {
+            executorService.writeAsync(getName(), codec, RedisCommands.SETBIT_VOID, getName(), i, value ? 1 : 0);
         }
-        return clearAsync(fromIndex, toIndex);
+        return executorService.executeAsyncVoid();
     }
 
     @Override
     public RFuture<Void> clearAsync(long fromIndex, long toIndex) {
-        CommandBatchService executorService = new CommandBatchService(commandExecutor.getConnectionManager());
-        for (long i = fromIndex; i < toIndex; i++) {
-            executorService.writeAsync(getName(), codec, RedisCommands.SETBIT_VOID, getName(), i, 0);
-        }
-        return executorService.executeAsyncVoid();
+        return setAsync(fromIndex, toIndex, false);
     }
 
     @Override
@@ -229,11 +226,7 @@ public class RedissonBitSet extends RedissonExpirable implements RBitSet {
 
     @Override
     public RFuture<Void> setAsync(long fromIndex, long toIndex) {
-        CommandBatchService executorService = new CommandBatchService(commandExecutor.getConnectionManager());
-        for (long i = fromIndex; i < toIndex; i++) {
-            executorService.writeAsync(getName(), codec, RedisCommands.SETBIT_VOID, getName(), i, 1);
-        }
-        return executorService.executeAsyncVoid();
+        return setAsync(fromIndex, toIndex, true);
     }
 
     @Override

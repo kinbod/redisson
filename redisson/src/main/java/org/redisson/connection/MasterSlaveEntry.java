@@ -1,5 +1,5 @@
 /**
- * Copyright 2016 Nikita Koksharov
+ * Copyright 2018 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -268,9 +268,12 @@ public class MasterSlaveEntry {
             @Override
             public void operationComplete(Future<PubSubConnectionEntry> future)
                     throws Exception {
-                if (future.isSuccess()) {
-                    log.debug("resubscribed listeners of '{}' channel to {}", channelName, future.getNow().getConnection().getRedisClient());
+                if (!future.isSuccess()) {
+                    subscribe(channelName, listeners, subscribeCodec);
+                    return;
                 }
+                
+                log.debug("resubscribed listeners of '{}' channel to '{}'", channelName, future.getNow().getConnection().getRedisClient());
             }
         });
     }
@@ -292,7 +295,7 @@ public class MasterSlaveEntry {
     
     private void psubscribe(final String channelName, final Collection<RedisPubSubListener<?>> listeners,
             final Codec subscribeCodec) {
-        RFuture<PubSubConnectionEntry> subscribeFuture = connectionManager.psubscribe(channelName, subscribeCodec, null);
+        RFuture<PubSubConnectionEntry> subscribeFuture = connectionManager.psubscribe(channelName, subscribeCodec, listeners.toArray(new RedisPubSubListener[listeners.size()]));
         subscribeFuture.addListener(new FutureListener<PubSubConnectionEntry>() {
             @Override
             public void operationComplete(Future<PubSubConnectionEntry> future)
@@ -302,11 +305,7 @@ public class MasterSlaveEntry {
                     return;
                 }
                 
-                PubSubConnectionEntry newEntry = future.getNow();
-                for (RedisPubSubListener<?> redisPubSubListener : listeners) {
-                    newEntry.addListener(channelName, redisPubSubListener);
-                }
-                log.debug("resubscribed listeners for '{}' channel-pattern", channelName);
+                log.debug("resubscribed listeners for '{}' channel-pattern to '{}'", channelName, future.getNow().getConnection().getRedisClient());
             }
         });
     }
@@ -429,7 +428,7 @@ public class MasterSlaveEntry {
         // exclude master from slaves
         if (!config.checkSkipSlavesInit()
                 && !addr.equals(entry.getClient().getAddr())) {
-            slaveDown(masterEntry.getClient().getAddr(), FreezeReason.SYSTEM);
+            slaveDown(addr, FreezeReason.SYSTEM);
             log.info("master {} excluded from slaves", addr);
         }
         return true;
@@ -444,11 +443,27 @@ public class MasterSlaveEntry {
         // exclude master from slaves
         if (!config.checkSkipSlavesInit()
                 && !URIBuilder.compare(addr, address)) {
-            slaveDown(masterEntry.getClient().getAddr(), FreezeReason.SYSTEM);
+            slaveDown(addr, FreezeReason.SYSTEM);
             log.info("master {} excluded from slaves", addr);
         }
         return true;
     }
+    
+    public boolean slaveUp(InetSocketAddress address, FreezeReason freezeReason) {
+        if (!slaveBalancer.unfreeze(address, freezeReason)) {
+            return false;
+        }
+
+        InetSocketAddress addr = masterEntry.getClient().getAddr();
+        // exclude master from slaves
+        if (!config.checkSkipSlavesInit()
+                && !addr.equals(address)) {
+            slaveDown(addr, FreezeReason.SYSTEM);
+            log.info("master {} excluded from slaves", addr);
+        }
+        return true;
+    }
+
 
     /**
      * Freeze slave with <code>redis(s)://host:port</code> from slaves list.

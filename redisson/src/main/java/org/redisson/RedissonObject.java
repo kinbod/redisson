@@ -1,5 +1,5 @@
 /**
- * Copyright 2016 Nikita Koksharov
+ * Copyright 2018 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,7 +26,6 @@ import org.redisson.api.RObject;
 import org.redisson.client.codec.Codec;
 import org.redisson.client.protocol.RedisCommands;
 import org.redisson.command.CommandAsyncExecutor;
-import org.redisson.misc.RPromise;
 import org.redisson.misc.RedissonObjectFactory;
 
 import io.netty.buffer.ByteBuf;
@@ -57,14 +56,14 @@ public abstract class RedissonObject implements RObject {
         return commandExecutor.await(future, timeout, timeoutUnit);
     }
     
-    protected String prefixName(String prefix, String name) {
+    protected static String prefixName(String prefix, String name) {
         if (name.contains("{")) {
             return prefix + ":" + name;
         }
         return prefix + ":{" + name + "}";
     }
     
-    protected String suffixName(String name, String suffix) {
+    protected static String suffixName(String name, String suffix) {
         if (name.contains("{")) {
             return name + ":" + suffix;
         }
@@ -73,14 +72,6 @@ public abstract class RedissonObject implements RObject {
 
     protected <V> V get(RFuture<V> future) {
         return commandExecutor.get(future);
-    }
-
-    protected <V> RPromise<V> newPromise() {
-        return commandExecutor.getConnectionManager().newPromise();
-    }
-
-    protected <V> RFuture<V> newSucceededFuture(V result) {
-        return commandExecutor.getConnectionManager().newSucceededFuture(result);
     }
 
     @Override

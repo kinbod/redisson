@@ -1,5 +1,5 @@
 /**
- * Copyright 2016 Nikita Koksharov
+ * Copyright 2018 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,7 +16,7 @@
 package org.redisson.api;
 
 /**
- * Bloom filter based on 64-bit hash derived from 128-bit hash (xxHash + FarmHash).
+ * Bloom filter based on Highway 128-bit hash.
  *
  * @author Nikita Koksharov
  *
