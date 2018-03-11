@@ -78,11 +78,6 @@ public class LoadBalancerManager {
         }
     }
     
-    public void changeType(URI address, NodeType nodeType) {
-        ClientConnectionsEntry entry = getEntry(address);
-        changeType(nodeType, entry);
-    }
-    
     public RFuture<Void> add(final ClientConnectionsEntry entry) {
         RPromise<Void> result = new RedissonPromise<Void>();
         
@@ -227,10 +222,6 @@ public class LoadBalancerManager {
         return client2Entry.get(redisClient);
     }
 
-    protected String convert(InetSocketAddress addr) {
-        return addr.getAddress().getHostAddress() + ":" + addr.getPort();
-    }
-    
     public RFuture<RedisConnection> getConnection(RedisCommand<?> command, URI addr) {
         ClientConnectionsEntry entry = getEntry(addr);
         if (entry != null) {

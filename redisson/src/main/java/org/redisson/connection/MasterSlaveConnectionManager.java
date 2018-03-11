@@ -366,14 +366,18 @@ public class MasterSlaveConnectionManager implements ConnectionManager {
                 addEntry(slot, entry);
             }
             
-            if (config.getDnsMonitoringInterval() != -1) {
-                dnsMonitor = new DNSMonitor(this, f.getNow(), 
-                        config.getSlaveAddresses(), config.getDnsMonitoringInterval(), resolverGroup);
-                dnsMonitor.start();
-            }
+            startDNSMonitoring(f.getNow());
         } catch (RuntimeException e) {
             stopThreads();
             throw e;
+        }
+    }
+
+    protected void startDNSMonitoring(RedisClient masterHost) {
+        if (config.getDnsMonitoringInterval() != -1) {
+            dnsMonitor = new DNSMonitor(this, masterHost, 
+                    config.getSlaveAddresses(), config.getDnsMonitoringInterval(), resolverGroup);
+            dnsMonitor.start();
         }
     }
     
@@ -923,7 +927,7 @@ public class MasterSlaveConnectionManager implements ConnectionManager {
 
     @Override
     public void shutdown() {
-        shutdown(2, 15, TimeUnit.SECONDS);//default netty value
+        shutdown(0, 2, TimeUnit.SECONDS);//default netty value
     }
 
     @Override
