@@ -285,7 +285,7 @@ public class RedissonBlockingQueueTest extends RedissonQueueTest {
 
         long s = System.currentTimeMillis();
         Assert.assertNull(queue1.poll(5, TimeUnit.SECONDS));
-        Assert.assertTrue(System.currentTimeMillis() - s > 5000);
+        Assert.assertTrue(System.currentTimeMillis() - s > 4900);
     }
     @Test
     public void testAwait() throws InterruptedException {

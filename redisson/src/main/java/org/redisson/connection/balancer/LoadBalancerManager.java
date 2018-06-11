@@ -17,6 +17,8 @@ package org.redisson.connection.balancer;
 
 import java.net.InetSocketAddress;
 import java.net.URI;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.Map;
 
 import org.redisson.api.NodeType;
@@ -31,10 +33,10 @@ import org.redisson.config.ReadMode;
 import org.redisson.connection.ClientConnectionsEntry;
 import org.redisson.connection.ClientConnectionsEntry.FreezeReason;
 import org.redisson.connection.ConnectionManager;
-import org.redisson.connection.CountableListener;
 import org.redisson.connection.MasterSlaveEntry;
 import org.redisson.connection.pool.PubSubConnectionPool;
 import org.redisson.connection.pool.SlaveConnectionPool;
+import org.redisson.misc.CountableListener;
 import org.redisson.misc.RPromise;
 import org.redisson.misc.RedissonPromise;
 import org.redisson.misc.URIBuilder;
@@ -81,7 +83,7 @@ public class LoadBalancerManager {
     public RFuture<Void> add(final ClientConnectionsEntry entry) {
         RPromise<Void> result = new RedissonPromise<Void>();
         
-        CountableListener<Void> listener = new CountableListener<Void>(result, null) {
+        CountableListener<Void> listener = new CountableListener<Void>(result, null, 2) {
             @Override
             protected void onSuccess(Void value) {
                 client2Entry.put(entry.getClient(), entry);
@@ -89,15 +91,17 @@ public class LoadBalancerManager {
         };
 
         RFuture<Void> slaveFuture = slaveConnectionPool.add(entry);
-        listener.incCounter();
         slaveFuture.addListener(listener);
         
         RFuture<Void> pubSubFuture = pubSubConnectionPool.add(entry);
-        listener.incCounter();
         pubSubFuture.addListener(listener);
         return result;
     }
 
+    public Collection<ClientConnectionsEntry> getEntries() {
+        return Collections.unmodifiableCollection(client2Entry.values());
+    }
+    
     public int getAvailableClients() {
         int count = 0;
         for (ClientConnectionsEntry connectionEntry : client2Entry.values()) {
@@ -135,7 +139,7 @@ public class LoadBalancerManager {
             if ((freezeReason == FreezeReason.RECONNECT
                     && entry.getFreezeReason() == FreezeReason.RECONNECT)
                         || freezeReason != FreezeReason.RECONNECT) {
-                entry.resetFailedAttempts();
+                entry.resetFirstFail();
                 entry.setFreezed(false);
                 entry.setFreezeReason(null);
                 return true;
@@ -143,20 +147,14 @@ public class LoadBalancerManager {
         }
         return false;
     }
-
+    
     public ClientConnectionsEntry freeze(URI address, FreezeReason freezeReason) {
         ClientConnectionsEntry connectionEntry = getEntry(address);
         return freeze(connectionEntry, freezeReason);
     }
-    
+
     public ClientConnectionsEntry freeze(InetSocketAddress address, FreezeReason freezeReason) {
         ClientConnectionsEntry connectionEntry = getEntry(address);
-        return freeze(connectionEntry, freezeReason);
-    }
-
-    
-    public ClientConnectionsEntry freeze(RedisClient redisClient, FreezeReason freezeReason) {
-        ClientConnectionsEntry connectionEntry = getEntry(redisClient);
         return freeze(connectionEntry, freezeReason);
     }
 
@@ -188,11 +186,16 @@ public class LoadBalancerManager {
     public boolean contains(InetSocketAddress addr) {
         return getEntry(addr) != null;
     }
+
+    public boolean isUnfreezed(URI addr) {
+        ClientConnectionsEntry entry = getEntry(addr);
+        return !entry.isFreezed();
+    }
     
     public boolean contains(URI addr) {
         return getEntry(addr) != null;
     }
-    
+
     public boolean contains(RedisClient redisClient) {
         return getEntry(redisClient) != null;
     }
@@ -217,8 +220,7 @@ public class LoadBalancerManager {
         return null;
     }
 
-    
-    protected ClientConnectionsEntry getEntry(RedisClient redisClient) {
+    public ClientConnectionsEntry getEntry(RedisClient redisClient) {
         return client2Entry.get(redisClient);
     }
 
@@ -228,6 +230,15 @@ public class LoadBalancerManager {
             return slaveConnectionPool.get(command, entry);
         }
         RedisConnectionException exception = new RedisConnectionException("Can't find entry for " + addr);
+        return RedissonPromise.newFailedFuture(exception);
+    }
+    
+    public RFuture<RedisConnection> getConnection(RedisCommand<?> command, RedisClient client) {
+        ClientConnectionsEntry entry = getEntry(client);
+        if (entry != null) {
+            return slaveConnectionPool.get(command, entry);
+        }
+        RedisConnectionException exception = new RedisConnectionException("Can't find entry for " + client);
         return RedissonPromise.newFailedFuture(exception);
     }
 
@@ -245,16 +256,16 @@ public class LoadBalancerManager {
         slaveConnectionPool.returnConnection(entry, connection);
     }
 
-    public void shutdown() {
-        for (ClientConnectionsEntry entry : client2Entry.values()) {
-            entry.getClient().shutdown();
+    public RFuture<Void> shutdownAsync() {
+        if (client2Entry.values().isEmpty()) {
+            return RedissonPromise.<Void>newSucceededFuture(null);
         }
-    }
-
-    public void shutdownAsync() {
+        RPromise<Void> result = new RedissonPromise<Void>();
+        CountableListener<Void> listener = new CountableListener<Void>(result, null, client2Entry.values().size());
         for (ClientConnectionsEntry entry : client2Entry.values()) {
-            connectionManager.shutdownAsync(entry.getClient());
+            entry.getClient().shutdownAsync().addListener(listener);
         }
+        return result;
     }
 
 }

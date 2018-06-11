@@ -13,27 +13,31 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.redisson.client.codec;
+package org.redisson.transaction;
 
-import org.redisson.client.protocol.Decoder;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 
  * @author Nikita Koksharov
  *
  */
-public class DelegateDecoderCodec extends StringCodec {
+public class HashValue {
 
-    private final Codec delegate;
-
-    public DelegateDecoderCodec(Codec delegate) {
-        super();
-        this.delegate = delegate;
+    private final AtomicInteger counter = new AtomicInteger();
+    private final List<byte[]> keyIds = new ArrayList<byte[]>();
+    
+    public HashValue() {
     }
-
-    @Override
-    public Decoder<Object> getValueDecoder() {
-        return delegate.getValueDecoder();
+    
+    public AtomicInteger getCounter() {
+        return counter;
     }
-
+    
+    public List<byte[]> getKeyIds() {
+        return keyIds;
+    }
+    
 }

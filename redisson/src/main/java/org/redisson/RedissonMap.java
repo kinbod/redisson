@@ -106,20 +106,20 @@ public class RedissonMap<K, V> extends RedissonExpirable implements RMap<K, V> {
 
     @Override
     public RLock getLock(K key) {
-        String lockName = getLockName(key);
+        String lockName = getLockName(key, "lock");
         return new RedissonLock(commandExecutor, lockName);
     }
     
     @Override
     public RReadWriteLock getReadWriteLock(K key) {
-        String lockName = getLockName(key);
+        String lockName = getLockName(key, "rw_lock");
         return new RedissonReadWriteLock(commandExecutor, lockName);
     }
     
-    private String getLockName(Object key) {
+    private String getLockName(Object key, String suffix) {
         ByteBuf keyState = encodeMapKey(key);
         try {
-            return suffixName(getName(), Hash.hash128toBase64(keyState) + ":key");
+            return suffixName(getName(key), Hash.hash128toBase64(keyState) + ":" + suffix);
         } finally {
             keyState.release();
         }
@@ -623,6 +623,47 @@ public class RedissonMap<K, V> extends RedissonExpirable implements RMap<K, V> {
                 + "end",
             Collections.<Object>singletonList(getName(key)), encodeMapKey(key), encodeMapValue(value));
     }
+    
+    @Override
+    public boolean fastReplace(K key, V value) {
+        return get(fastReplaceAsync(key, value));
+    }
+
+    @Override
+    public RFuture<Boolean> fastReplaceAsync(final K key, final V value) {
+        checkKey(key);
+        checkValue(value);
+        
+        RFuture<Boolean> future = fastReplaceOperationAsync(key, value);
+        if (hasNoWriter()) {
+            return future;
+        }
+        
+        MapWriterTask<Boolean> listener = new MapWriterTask<Boolean>() {
+            @Override
+            public void execute() {
+                options.getWriter().write(key, value);
+            }
+            
+            @Override
+            protected boolean condition(Future<Boolean> future) {
+                return future.getNow();
+            }
+        };
+        return mapWriterFuture(future, listener);
+    }
+
+    protected RFuture<Boolean> fastReplaceOperationAsync(final K key, final V value) {
+        return commandExecutor.evalWriteAsync(getName(key), codec, RedisCommands.EVAL_BOOLEAN,
+                "if redis.call('hexists', KEYS[1], ARGV[1]) == 1 then "
+                    + "redis.call('hset', KEYS[1], ARGV[1], ARGV[2]); "
+                    + "return 1; "
+                + "else "
+                    + "return 0; "
+                + "end",
+            Collections.<Object>singletonList(getName(key)), encodeMapKey(key), encodeMapValue(value));
+    }
+    
 
     public RFuture<V> getOperationAsync(K key) {
         return commandExecutor.readAsync(getName(key), codec, RedisCommands.HGET, getName(key), encodeMapKey(key));
@@ -1061,7 +1102,7 @@ public class RedissonMap<K, V> extends RedissonExpirable implements RMap<K, V> {
     }
 
     protected Iterator<K> keyIterator(String pattern) {
-        return new RedissonMapIterator<K, V, K>(RedissonMap.this, pattern) {
+        return new RedissonMapIterator<K>(RedissonMap.this, pattern) {
             @Override
             protected K getValue(java.util.Map.Entry<ScanObjectEntry, ScanObjectEntry> entry) {
                 return (K) entry.getKey().getObj();
@@ -1112,7 +1153,7 @@ public class RedissonMap<K, V> extends RedissonExpirable implements RMap<K, V> {
     }
 
     protected Iterator<V> valueIterator(String pattern) {
-        return new RedissonMapIterator<K, V, V>(RedissonMap.this, pattern) {
+        return new RedissonMapIterator<V>(RedissonMap.this, pattern) {
             @Override
             protected V getValue(java.util.Map.Entry<ScanObjectEntry, ScanObjectEntry> entry) {
                 return (V) entry.getValue().getObj();
@@ -1159,7 +1200,7 @@ public class RedissonMap<K, V> extends RedissonExpirable implements RMap<K, V> {
     }
 
     protected Iterator<Map.Entry<K,V>> entryIterator(String pattern) {
-        return new RedissonMapIterator<K, V, Map.Entry<K, V>>(RedissonMap.this, pattern);
+        return new RedissonMapIterator<Map.Entry<K, V>>(RedissonMap.this, pattern);
     }
 
     private void loadValue(final K key, final RPromise<V> result, final boolean replaceValue) {

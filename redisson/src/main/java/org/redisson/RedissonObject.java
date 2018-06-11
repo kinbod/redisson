@@ -70,8 +70,16 @@ public abstract class RedissonObject implements RObject {
         return "{" + name + "}:" + suffix;
     }
 
-    protected <V> V get(RFuture<V> future) {
+    protected final <V> V get(RFuture<V> future) {
         return commandExecutor.get(future);
+    }
+    
+    protected final long toSeconds(long timeout, TimeUnit unit) {
+        long seconds = unit.toSeconds(timeout);
+        if (timeout != 0 && seconds == 0) {
+            seconds = 1;
+        }
+        return seconds;
     }
 
     @Override
@@ -94,15 +102,25 @@ public abstract class RedissonObject implements RObject {
     }
 
     @Override
-    public void migrate(String host, int port, int database) {
-        get(migrateAsync(host, port, database));
+    public void migrate(String host, int port, int database, long timeout) {
+        get(migrateAsync(host, port, database, timeout));
     }
 
     @Override
-    public RFuture<Void> migrateAsync(String host, int port, int database) {
-        return commandExecutor.writeAsync(getName(), RedisCommands.MIGRATE, host, port, getName(), database);
+    public RFuture<Void> migrateAsync(String host, int port, int database, long timeout) {
+        return commandExecutor.writeAsync(getName(), RedisCommands.MIGRATE, host, port, getName(), database, timeout);
+    }
+    
+    @Override
+    public void copy(String host, int port, int database, long timeout) {
+        get(copyAsync(host, port, database, timeout));
     }
 
+    @Override
+    public RFuture<Void> copyAsync(String host, int port, int database, long timeout) {
+        return commandExecutor.writeAsync(getName(), RedisCommands.MIGRATE, host, port, getName(), database, timeout, "COPY");
+    }
+    
     @Override
     public boolean move(int database) {
         return get(moveAsync(database));

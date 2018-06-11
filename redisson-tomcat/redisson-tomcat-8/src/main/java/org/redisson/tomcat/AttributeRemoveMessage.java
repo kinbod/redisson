@@ -13,19 +13,28 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.redisson;
-
-import org.redisson.client.RedisClient;
+package org.redisson.tomcat;
 
 /**
  * 
  * @author Nikita Koksharov
  *
  */
-public interface RedisClientResult {
+public class AttributeRemoveMessage extends AttributeMessage {
 
-    void setRedisClient(RedisClient addr);
+    private String name;
+    
+    public AttributeRemoveMessage() {
+        super();
+    }
 
-    RedisClient getRedisClient();
+    public AttributeRemoveMessage(String sessionId, String name) {
+        super(sessionId);
+        this.name = name;
+    }
 
+    public String getName() {
+        return name;
+    }
+    
 }

@@ -13,11 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.redisson.connection;
+package org.redisson.misc;
 
 import java.util.concurrent.atomic.AtomicInteger;
-
-import org.redisson.misc.RPromise;
 
 import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.FutureListener;
@@ -38,17 +36,26 @@ public class CountableListener<T> implements FutureListener<Object> {
     }
     
     public CountableListener(RPromise<T> result, T value) {
-        super();
+        this(null, null, 0);
+    }
+    
+    public CountableListener(RPromise<T> result, T value, int count) {
         this.result = result;
         this.value = value;
+        this.counter.set(count);
     }
     
     public void setCounter(int newValue) {
         counter.set(newValue);
     }
     
-    public void incCounter() {
-        counter.incrementAndGet();
+    public void decCounter() {
+        if (counter.decrementAndGet() == 0) {
+            onSuccess(value);
+            if (result != null) {
+                result.trySuccess(value);
+            }
+        }
     }
     
     @Override
@@ -59,13 +66,8 @@ public class CountableListener<T> implements FutureListener<Object> {
             }
             return;
         }
-        
-        if (counter.decrementAndGet() == 0) {
-            onSuccess(value);
-            if (result != null) {
-                result.trySuccess(value);
-            }
-        }
+
+        decCounter();
     }
 
     protected void onSuccess(T value) {

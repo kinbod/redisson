@@ -13,28 +13,28 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.redisson.client.protocol.convertor;
-
-import java.util.List;
-
-import org.redisson.client.handler.State;
-import org.redisson.client.protocol.decoder.ListFirstObjectDecoder;
+package org.redisson.tomcat;
 
 /**
  * 
  * @author Nikita Koksharov
  *
  */
+public class AttributeRemoveMessage extends AttributeMessage {
 
-public class LongListObjectDecoder extends ListFirstObjectDecoder {
+    private String name;
+    
+    public AttributeRemoveMessage() {
+        super();
+    }
 
-    @Override
-    public Object decode(List<Object> parts, State state) {
-        Object result = super.decode(parts, state);
-        if (result != null) {
-            return Long.valueOf(result.toString());
-        }
-        return result;
+    public AttributeRemoveMessage(String sessionId, String name) {
+        super(sessionId);
+        this.name = name;
+    }
+
+    public String getName() {
+        return name;
     }
     
 }

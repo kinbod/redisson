@@ -121,13 +121,13 @@ public class RedissonKeys implements RKeys {
         return new RedissonBaseIterator<String>() {
 
             @Override
-            ListScanResult<ScanObjectEntry> iterator(RedisClient client, long nextIterPos) {
+            protected ListScanResult<ScanObjectEntry> iterator(RedisClient client, long nextIterPos) {
                 return RedissonKeys.this.scanIterator(client, entry, nextIterPos, pattern, count);
             }
 
             @Override
-            void remove(String value) {
-                RedissonKeys.this.delete(value);
+            protected void remove(ScanObjectEntry value) {
+                RedissonKeys.this.delete((String)value.getObj());
             }
             
         };
@@ -485,15 +485,25 @@ public class RedissonKeys implements RKeys {
     }
 
     @Override
-    public void migrate(String name, String host, int port, int database) {
-        commandExecutor.get(migrateAsync(name, host, port, database));
+    public void migrate(String name, String host, int port, int database, long timeout) {
+        commandExecutor.get(migrateAsync(name, host, port, database, timeout));
     }
 
     @Override
-    public RFuture<Void> migrateAsync(String name, String host, int port, int database) {
-        return commandExecutor.writeAsync(name, RedisCommands.MIGRATE, host, port, name, database);
+    public RFuture<Void> migrateAsync(String name, String host, int port, int database, long timeout) {
+        return commandExecutor.writeAsync(name, RedisCommands.MIGRATE, host, port, name, database, timeout);
     }
 
+    @Override
+    public void copy(String name, String host, int port, int database, long timeout) {
+        commandExecutor.get(copyAsync(name, host, port, database, timeout));
+    }
+
+    @Override
+    public RFuture<Void> copyAsync(String name, String host, int port, int database, long timeout) {
+        return commandExecutor.writeAsync(name, RedisCommands.MIGRATE, host, port, name, database, timeout, "COPY");
+    }
+    
     @Override
     public boolean move(String name, int database) {
         return commandExecutor.get(moveAsync(name, database));

@@ -15,6 +15,8 @@
  */
 package org.redisson.connection;
 
+import java.util.UUID;
+
 import org.redisson.config.Config;
 import org.redisson.config.MasterSlaveServersConfig;
 import org.redisson.config.ReadMode;
@@ -28,13 +30,14 @@ import org.redisson.config.SubscriptionMode;
  */
 public class SingleConnectionManager extends MasterSlaveConnectionManager {
 
-    public SingleConnectionManager(SingleServerConfig cfg, Config config) {
-        super(create(cfg), config);
+    public SingleConnectionManager(SingleServerConfig cfg, Config config, UUID id) {
+        super(create(cfg), config, id);
     }
 
     private static MasterSlaveServersConfig create(SingleServerConfig cfg) {
         MasterSlaveServersConfig newconfig = new MasterSlaveServersConfig();
         
+        newconfig.setPingConnectionInterval(cfg.getPingConnectionInterval());
         newconfig.setSslEnableEndpointIdentification(cfg.isSslEnableEndpointIdentification());
         newconfig.setSslProvider(cfg.getSslProvider());
         newconfig.setSslTruststore(cfg.getSslTruststore());
@@ -55,13 +58,7 @@ public class SingleConnectionManager extends MasterSlaveConnectionManager {
         newconfig.setSubscriptionConnectionPoolSize(cfg.getSubscriptionConnectionPoolSize());
         newconfig.setConnectTimeout(cfg.getConnectTimeout());
         newconfig.setIdleConnectionTimeout(cfg.getIdleConnectionTimeout());
-        newconfig.setFailedAttempts(cfg.getFailedAttempts());
-        newconfig.setReconnectionTimeout(cfg.getReconnectionTimeout());
-        if (cfg.isDnsMonitoring()) {
-            newconfig.setDnsMonitoringInterval(cfg.getDnsMonitoringInterval());
-        } else {
-            newconfig.setDnsMonitoringInterval(-1);
-        }
+        newconfig.setDnsMonitoringInterval(cfg.getDnsMonitoringInterval());
 
         newconfig.setMasterConnectionMinimumIdleSize(cfg.getConnectionMinimumIdleSize());
         newconfig.setSubscriptionConnectionMinimumIdleSize(cfg.getSubscriptionConnectionMinimumIdleSize());

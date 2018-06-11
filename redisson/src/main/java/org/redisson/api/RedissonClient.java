@@ -30,6 +30,14 @@ import org.redisson.config.Config;
 public interface RedissonClient {
 
     /**
+     * Returns rate limiter instance by <code>name</code>
+     * 
+     * @param name of rate limiter
+     * @return RateLimiter object
+     */
+    RRateLimiter getRateLimiter(String name);
+    
+    /**
      * Returns binary stream holder instance by <code>name</code>
      * 
      * @param name of binary stream
@@ -840,6 +848,15 @@ public interface RedissonClient {
     RScheduledExecutorService getExecutorService(String name);
 
     /**
+     * Returns ScheduledExecutorService by name
+     * 
+     * @param name - name of object
+     * @param options - options for executor
+     * @return ScheduledExecutorService object
+     */
+    RScheduledExecutorService getExecutorService(String name, ExecutorOptions options);
+    
+    /**
      * Returns ScheduledExecutorService by name 
      * using provided codec for task, response and request serialization
      * 
@@ -864,6 +881,17 @@ public interface RedissonClient {
      * @since 2.8.2
      */
     RScheduledExecutorService getExecutorService(String name, Codec codec);
+
+    /**
+     * Returns ScheduledExecutorService by name 
+     * using provided codec for task, response and request serialization
+     * 
+     * @param name - name of object
+     * @param codec - codec for task, response and request
+     * @param options - options for executor
+     * @return ScheduledExecutorService object
+     */
+    RScheduledExecutorService getExecutorService(String name, Codec codec, ExecutorOptions options);
     
     /**
      * Returns object for remote operations prefixed with the default name (redisson_remote_service)
@@ -900,13 +928,29 @@ public interface RedissonClient {
     RRemoteService getRemoteService(String name, Codec codec);
 
     /**
-     * Return batch object which executes group of
-     * command in pipeline.
-     *
+     * Creates transaction with <b>READ_COMMITTED</b> isolation level.
+     * 
+     * @param options - transaction configuration
+     * @return Transaction object
+     */
+    RTransaction createTransaction(TransactionOptions options);
+
+    /**
+     * Creates batch object which could be executed later 
+     * with collected group of commands in pipeline mode.
+     * <p>
      * See <a href="http://redis.io/topics/pipelining">http://redis.io/topics/pipelining</a>
      *
+     * @param options - batch configuration
      * @return Batch object
      */
+    RBatch createBatch(BatchOptions options);
+
+    /*
+     * Use #createBatch(BatchOptions)
+     * 
+     */
+    @Deprecated
     RBatch createBatch();
     
     /**
@@ -972,7 +1016,7 @@ public interface RedissonClient {
     /**
      * Returns {@code true} if this Redisson instance has been shut down.
      *
-     * @return code true} if this Redisson instance has been shut down overwise <code>false</code>
+     * @return {@code true} if this Redisson instance has been shut down overwise <code>false</code>
      */
     boolean isShutdown();
 

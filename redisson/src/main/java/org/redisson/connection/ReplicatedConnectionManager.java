@@ -17,6 +17,7 @@ package org.redisson.connection;
 
 import java.net.URI;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -60,14 +61,14 @@ public class ReplicatedConnectionManager extends MasterSlaveConnectionManager {
         slave
     }
 
-    public ReplicatedConnectionManager(ReplicatedServersConfig cfg, Config config) {
-        super(config);
+    public ReplicatedConnectionManager(ReplicatedServersConfig cfg, Config config, UUID id) {
+        super(config, id);
 
         this.config = create(cfg);
         initTimer(this.config);
 
         for (URI addr : cfg.getNodeAddresses()) {
-            RFuture<RedisConnection> connectionFuture = connectToNode(cfg, addr, null);
+            RFuture<RedisConnection> connectionFuture = connectToNode(cfg, addr, null, addr.getHost());
             connectionFuture.awaitUninterruptibly();
             RedisConnection connection = connectionFuture.getNow();
             if (connection == null) {
@@ -119,7 +120,7 @@ public class ReplicatedConnectionManager extends MasterSlaveConnectionManager {
                         return;
                     }
 
-                    RFuture<RedisConnection> connectionFuture = connectToNode(cfg, addr, null);
+                    RFuture<RedisConnection> connectionFuture = connectToNode(cfg, addr, null, addr.getHost());
                     connectionFuture.addListener(new FutureListener<RedisConnection>() {
                         @Override
                         public void operationComplete(Future<RedisConnection> future) throws Exception {

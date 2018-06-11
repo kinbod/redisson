@@ -13,26 +13,28 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.redisson.client.protocol.convertor;
+package org.redisson.tomcat;
 
 /**
  * 
  * @author Nikita Koksharov
  *
  */
-public class BitSetReplayConvertor extends SingleConvertor<Boolean> {
+public class AttributeRemoveMessage extends AttributeMessage {
 
-    private final int expectedValue;
+    private String name;
     
-    public BitSetReplayConvertor(int expectedValue) {
+    public AttributeRemoveMessage() {
         super();
-        this.expectedValue = expectedValue;
     }
 
-    @Override
-    public Boolean convert(Object obj) {
-        return expectedValue == (Long)obj;
+    public AttributeRemoveMessage(String sessionId, String name) {
+        super(sessionId);
+        this.name = name;
     }
 
-
+    public String getName() {
+        return name;
+    }
+    
 }

@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
@@ -60,6 +61,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import io.netty.resolver.AddressResolver;
+import io.netty.util.NetUtil;
 import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.FutureListener;
 import io.netty.util.concurrent.ScheduledFuture;
@@ -82,12 +84,12 @@ public class ClusterConnectionManager extends MasterSlaveConnectionManager {
     
     private RedisStrictCommand<List<ClusterNodeInfo>> clusterNodesCommand;
     
+    private String configEndpointHostName;
+    
     private boolean isConfigEndpoint;
 
-    private AddressResolver<InetSocketAddress> resolver;
-    
-    public ClusterConnectionManager(ClusterServersConfig cfg, Config config) {
-        super(config);
+    public ClusterConnectionManager(ClusterServersConfig cfg, Config config, UUID id) {
+        super(config, id);
 
         this.config = create(cfg);
         initTimer(this.config);
@@ -95,19 +97,13 @@ public class ClusterConnectionManager extends MasterSlaveConnectionManager {
         Throwable lastException = null;
         List<String> failedMasters = new ArrayList<String>();
         for (URI addr : cfg.getNodeAddresses()) {
-            RFuture<RedisConnection> connectionFuture = connectToNode(cfg, addr, null);
+            RFuture<RedisConnection> connectionFuture = connectToNode(cfg, addr, null, addr.getHost());
             try {
                 RedisConnection connection = connectionFuture.syncUninterruptibly().getNow();
 
-                if (cfg.getNodeAddresses().size() == 1) {
-                    this.resolver = resolverGroup.getResolver(getGroup().next());
-                    Future<List<InetSocketAddress>> addrsFuture = resolver.resolveAll(InetSocketAddress.createUnresolved(addr.getHost(), addr.getPort()));
-                    List<InetSocketAddress> allAddrs = addrsFuture.syncUninterruptibly().getNow();
-                    if (allAddrs.size() > 1) {
-                        isConfigEndpoint = true;
-                    } else {
-                        resolver.close();
-                    }
+                if (cfg.getNodeAddresses().size() == 1 && NetUtil.createByteArrayFromIpAddressString(addr.getHost()) == null) {
+                    configEndpointHostName = addr.getHost();
+                    isConfigEndpoint = true;
                 }
                 
                 clusterNodesCommand = RedisCommands.CLUSTER_NODES;
@@ -178,8 +174,8 @@ public class ClusterConnectionManager extends MasterSlaveConnectionManager {
     }
     
     @Override
-    protected RedisClientConfig createRedisConfig(NodeType type, URI address, int timeout, int commandTimeout) {
-        RedisClientConfig result = super.createRedisConfig(type, address, timeout, commandTimeout);
+    protected RedisClientConfig createRedisConfig(NodeType type, URI address, int timeout, int commandTimeout, String sslHostname) {
+        RedisClientConfig result = super.createRedisConfig(type, address, timeout, commandTimeout, sslHostname);
         result.setReadOnly(type == NodeType.SLAVE && config.getReadMode() != ReadMode.MASTER);
         return result;
     }
@@ -198,7 +194,7 @@ public class ClusterConnectionManager extends MasterSlaveConnectionManager {
         }
 
         final RPromise<Collection<RFuture<Void>>> result = new RedissonPromise<Collection<RFuture<Void>>>();
-        RFuture<RedisConnection> connectionFuture = connectToNode(cfg, partition.getMasterAddress(), null);
+        RFuture<RedisConnection> connectionFuture = connectToNode(cfg, partition.getMasterAddress(), null, configEndpointHostName);
         connectionFuture.addListener(new FutureListener<RedisConnection>() {
             @Override
             public void operationComplete(Future<RedisConnection> future) throws Exception {
@@ -292,6 +288,7 @@ public class ClusterConnectionManager extends MasterSlaveConnectionManager {
             public void run() {
                 if (isConfigEndpoint) {
                     final URI uri = cfg.getNodeAddresses().iterator().next();
+                    final AddressResolver<InetSocketAddress> resolver = resolverGroup.getResolver(getGroup().next());
                     Future<List<InetSocketAddress>> allNodes = resolver.resolveAll(InetSocketAddress.createUnresolved(uri.getHost(), uri.getPort()));
                     allNodes.addListener(new FutureListener<List<InetSocketAddress>>() {
                         @Override
@@ -343,7 +340,9 @@ public class ClusterConnectionManager extends MasterSlaveConnectionManager {
 
     private void checkClusterState(final ClusterServersConfig cfg, final Iterator<URI> iterator, final AtomicReference<Throwable> lastException) {
         if (!iterator.hasNext()) {
-            log.error("Can't update cluster state", lastException.get());
+            if (lastException.get() != null) {
+                log.error("Can't update cluster state", lastException.get());
+            }
             scheduleClusterChangeCheck(cfg, null);
             return;
         }
@@ -351,7 +350,7 @@ public class ClusterConnectionManager extends MasterSlaveConnectionManager {
             return;
         }
         final URI uri = iterator.next();
-        RFuture<RedisConnection> connectionFuture = connectToNode(cfg, uri, null);
+        RFuture<RedisConnection> connectionFuture = connectToNode(cfg, uri, null, configEndpointHostName);
         connectionFuture.addListener(new FutureListener<RedisConnection>() {
             @Override
             public void operationComplete(Future<RedisConnection> future) throws Exception {
@@ -432,7 +431,7 @@ public class ClusterConnectionManager extends MasterSlaveConnectionManager {
         aliveSlaves.removeAll(newPart.getFailedSlaveAddresses());
         for (URI uri : aliveSlaves) {
             currentPart.removeFailedSlaveAddress(uri);
-            if (entry.slaveUp(uri, FreezeReason.MANAGER)) {
+            if (entry.hasSlave(uri) && entry.slaveUp(uri, FreezeReason.MANAGER)) {
                 log.info("slave: {} has up for slot ranges: {}", uri, currentPart.getSlotRanges());
             }
         }
@@ -447,7 +446,7 @@ public class ClusterConnectionManager extends MasterSlaveConnectionManager {
         }
     }
 
-    private Set<URI> addRemoveSlaves(final MasterSlaveEntry entry, final ClusterPartition currentPart, final ClusterPartition newPart) {
+    private Set<URI> addRemoveSlaves(final MasterSlaveEntry entry, final ClusterPartition currentPart, ClusterPartition newPart) {
         Set<URI> removedSlaves = new HashSet<URI>(currentPart.getSlaveAddresses());
         removedSlaves.removeAll(newPart.getSlaveAddresses());
 
@@ -583,7 +582,7 @@ public class ClusterConnectionManager extends MasterSlaveConnectionManager {
         for (Integer slot : removedSlots) {
             MasterSlaveEntry entry = removeEntry(slot);
             if (entry.getSlotRanges().isEmpty()) {
-                entry.shutdownMasterAsync();
+                entry.shutdownAsync();
                 log.info("{} master and slaves for it removed", entry.getClient().getAddr());
             }
         }
@@ -650,6 +649,10 @@ public class ClusterConnectionManager extends MasterSlaveConnectionManager {
                 break;
             }
         }
+    }
+    
+    public String getConfigEndpointHostName() {
+        return configEndpointHostName;
     }
 
     @Override

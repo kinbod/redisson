@@ -13,6 +13,22 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+/**
+ * Copyright 2012 Sam Pullara
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ * 
+ */
 package org.redisson.client.handler;
 
 import java.io.IOException;
@@ -52,8 +68,6 @@ import io.netty.util.CharsetUtil;
 /**
  * Redis protocol command decoder
  *
- * Code parts from Sam Pullara
- *
  * @author Nikita Koksharov
  *
  */
@@ -92,8 +106,14 @@ public class CommandDecoder extends ReplayingDecoder<State> {
         state().setDecoderState(null);
 
         if (data == null) {
-            while (in.writerIndex() > in.readerIndex()) {
-                decode(in, null, null, ctx.channel());
+            try {
+                while (in.writerIndex() > in.readerIndex()) {
+                    decode(in, null, null, ctx.channel());
+                }
+            } catch (Exception e) {
+                log.error("Unable to decode data. channel: {} message: {}", ctx.channel(), in.toString(0, in.writerIndex(), CharsetUtil.UTF_8), e);
+                sendNext(ctx);
+                throw e;
             }
         } else if (data instanceof CommandData) {
             CommandData<Object, Object> cmd = (CommandData<Object, Object>)data;
@@ -104,7 +124,9 @@ public class CommandDecoder extends ReplayingDecoder<State> {
                     decode(in, cmd, null, ctx.channel());
                 }
             } catch (Exception e) {
+                log.error("Unable to decode data. channel: {} message: {}", ctx.channel(), in.toString(0, in.writerIndex(), CharsetUtil.UTF_8), e);
                 cmd.tryFailure(e);
+                sendNext(ctx);
                 throw e;
             }
         } else if (data instanceof CommandsData) {
@@ -113,13 +135,17 @@ public class CommandDecoder extends ReplayingDecoder<State> {
                 decodeCommandBatch(ctx, in, data, commands);
             } catch (Exception e) {
                 commands.getPromise().tryFailure(e);
+                sendNext(ctx);
                 throw e;
             }
             return;
         }
         
-        ctx.pipeline().get(CommandsQueue.class).sendNextCommand(ctx.channel());
+        sendNext(ctx);
+    }
 
+    protected void sendNext(ChannelHandlerContext ctx) {
+        ctx.pipeline().get(CommandsQueue.class).sendNextCommand(ctx.channel());
         state(null);
     }
 
@@ -192,7 +218,8 @@ public class CommandDecoder extends ReplayingDecoder<State> {
                 
                 decode(in, commandData, null, ctx.channel());
                 
-                if (commandData != null && RedisCommands.EXEC.getName().equals(commandData.getCommand().getName())) {
+                if (commandData != null && RedisCommands.EXEC.getName().equals(commandData.getCommand().getName())
+                        && commandData.getPromise().isSuccess()) {
                     List<Object> objects = (List<Object>) commandData.getPromise().getNow();
                     Iterator<Object> iter = objects.iterator();
                     boolean multiFound = false; 
@@ -212,7 +239,9 @@ public class CommandDecoder extends ReplayingDecoder<State> {
                     }
                 }
             } catch (Exception e) {
-                commandData.tryFailure(e);
+                if (commandData != null) {
+                    commandData.tryFailure(e);
+                }
                 throw e;
             }
             i++;
@@ -233,9 +262,7 @@ public class CommandDecoder extends ReplayingDecoder<State> {
                 }
             }
             
-            ctx.pipeline().get(CommandsQueue.class).sendNextCommand(ctx.channel());
-
-            state(null);
+            sendNext(ctx);
         } else {
             checkpoint();
             state().setBatchIndex(i);

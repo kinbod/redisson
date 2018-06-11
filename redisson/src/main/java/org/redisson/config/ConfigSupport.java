@@ -19,12 +19,10 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.Reader;
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
-import java.lang.reflect.Modifier;
 import java.net.URI;
 import java.net.URL;
 import java.util.List;
+import java.util.UUID;
 
 import org.redisson.api.RedissonNodeInitializer;
 import org.redisson.client.codec.Codec;
@@ -123,124 +121,87 @@ public class ConfigSupport {
 
     private ObjectMapper jsonMapper = createMapper(null, null);
     private ObjectMapper yamlMapper = createMapper(new YAMLFactory(), null);
-
-    private void patchUriObject() throws IOException {
-        patchUriField("lowMask", "L_DASH");
-        patchUriField("highMask", "H_DASH");
-    }
-    
-    private void patchUriField(String methodName, String fieldName)
-            throws IOException {
-        try {
-            Method lowMask = URI.class.getDeclaredMethod(methodName, String.class);
-            lowMask.setAccessible(true);
-            Long lowMaskValue = (Long) lowMask.invoke(null, "-_");
-            
-            Field lowDash = URI.class.getDeclaredField(fieldName);
-            
-            Field modifiers = Field.class.getDeclaredField("modifiers");
-            modifiers.setAccessible(true);
-            modifiers.setInt(lowDash, lowDash.getModifiers() & ~Modifier.FINAL);
-            
-            lowDash.setAccessible(true);
-            lowDash.setLong(null, lowMaskValue);
-        } catch (Exception e) {
-            throw new IOException(e);
-        }
-    }
     
     public <T> T fromJSON(String content, Class<T> configType) throws IOException {
-        patchUriObject();
         return jsonMapper.readValue(content, configType);
     }
 
     public <T> T fromJSON(File file, Class<T> configType) throws IOException {
-        patchUriObject();
         return fromJSON(file, configType, null);
     }
     
     public <T> T fromJSON(File file, Class<T> configType, ClassLoader classLoader) throws IOException {
-        patchUriObject();
         jsonMapper = createMapper(null, classLoader);
         return jsonMapper.readValue(file, configType);
     }
 
     public <T> T fromJSON(URL url, Class<T> configType) throws IOException {
-        patchUriObject();
         return jsonMapper.readValue(url, configType);
     }
 
     public <T> T fromJSON(Reader reader, Class<T> configType) throws IOException {
-        patchUriObject();
         return jsonMapper.readValue(reader, configType);
     }
 
     public <T> T fromJSON(InputStream inputStream, Class<T> configType) throws IOException {
-        patchUriObject();
         return jsonMapper.readValue(inputStream, configType);
     }
 
     public String toJSON(Config config) throws IOException {
-        patchUriObject();
         return jsonMapper.writeValueAsString(config);
     }
 
     public <T> T fromYAML(String content, Class<T> configType) throws IOException {
-        patchUriObject();
         return yamlMapper.readValue(content, configType);
     }
 
     public <T> T fromYAML(File file, Class<T> configType) throws IOException {
-        patchUriObject();
         return yamlMapper.readValue(file, configType);
     }
     
     public <T> T fromYAML(File file, Class<T> configType, ClassLoader classLoader) throws IOException {
-        patchUriObject();
         yamlMapper = createMapper(new YAMLFactory(), classLoader);
         return yamlMapper.readValue(file, configType);
     }
 
 
     public <T> T fromYAML(URL url, Class<T> configType) throws IOException {
-        patchUriObject();
         return yamlMapper.readValue(url, configType);
     }
 
     public <T> T fromYAML(Reader reader, Class<T> configType) throws IOException {
-        patchUriObject();
         return yamlMapper.readValue(reader, configType);
     }
 
     public <T> T fromYAML(InputStream inputStream, Class<T> configType) throws IOException {
-        patchUriObject();
         return yamlMapper.readValue(inputStream, configType);
     }
 
     public String toYAML(Config config) throws IOException {
-        patchUriObject();
         return yamlMapper.writeValueAsString(config);
     }
     
     public static ConnectionManager createConnectionManager(Config configCopy) {
+        UUID id = UUID.randomUUID();
+        
         if (configCopy.getMasterSlaveServersConfig() != null) {
             validate(configCopy.getMasterSlaveServersConfig());
-            return new MasterSlaveConnectionManager(configCopy.getMasterSlaveServersConfig(), configCopy);
+            return new MasterSlaveConnectionManager(configCopy.getMasterSlaveServersConfig(), configCopy, id);
         } else if (configCopy.getSingleServerConfig() != null) {
             validate(configCopy.getSingleServerConfig());
-            return new SingleConnectionManager(configCopy.getSingleServerConfig(), configCopy);
+            return new SingleConnectionManager(configCopy.getSingleServerConfig(), configCopy, id);
         } else if (configCopy.getSentinelServersConfig() != null) {
             validate(configCopy.getSentinelServersConfig());
-            return new SentinelConnectionManager(configCopy.getSentinelServersConfig(), configCopy);
+            return new SentinelConnectionManager(configCopy.getSentinelServersConfig(), configCopy, id);
         } else if (configCopy.getClusterServersConfig() != null) {
             validate(configCopy.getClusterServersConfig());
-            return new ClusterConnectionManager(configCopy.getClusterServersConfig(), configCopy);
+            return new ClusterConnectionManager(configCopy.getClusterServersConfig(), configCopy, id);
         } else if (configCopy.getElasticacheServersConfig() != null) {
             validate(configCopy.getElasticacheServersConfig());
-            return new ElasticacheConnectionManager(configCopy.getElasticacheServersConfig(), configCopy);
+            return new ElasticacheConnectionManager(configCopy.getElasticacheServersConfig(), configCopy, id);
         } else if (configCopy.getReplicatedServersConfig() != null) {
             validate(configCopy.getReplicatedServersConfig());
-            return new ReplicatedConnectionManager(configCopy.getReplicatedServersConfig(), configCopy);
+            return new ReplicatedConnectionManager(configCopy.getReplicatedServersConfig(), configCopy, id);
         } else if (configCopy.getConnectionManager() != null) {
             return configCopy.getConnectionManager();
         }else {

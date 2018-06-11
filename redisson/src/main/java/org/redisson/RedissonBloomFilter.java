@@ -13,6 +13,19 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+/**
+ * Copyright (C) 2011 The Guava Authors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
+ * in compliance with the License. You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software distributed under the License
+ * is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express
+ * or implied. See the License for the specific language governing permissions and limitations under
+ * the License.
+ */
 package org.redisson;
 
 import java.math.BigDecimal;
@@ -42,8 +55,6 @@ import io.netty.buffer.ByteBuf;
 
 /**
  * Bloom filter based on Highway 128-bit hash.
- *
- * Code parts from Guava BloomFilter
  *
  * @author Nikita Koksharov
  *
@@ -113,7 +124,7 @@ public class RedissonBloomFilter<T> extends RedissonExpirable implements RBloomF
                 List<Boolean> result = (List<Boolean>) executorService.execute();
 
                 for (Boolean val : result.subList(1, result.size()-1)) {
-                    if (val) {
+                    if (!val) {
                         return true;
                     }
                 }

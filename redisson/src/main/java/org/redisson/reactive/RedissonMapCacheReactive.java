@@ -64,15 +64,53 @@ public class RedissonMapCacheReactive<K, V> extends RedissonExpirableReactive im
     private final RMapCacheAsync<K, V> mapCache;
 
     public RedissonMapCacheReactive(EvictionScheduler evictionScheduler, CommandReactiveExecutor commandExecutor, String name, MapOptions<K, V> options) {
-        super(commandExecutor, name);
-        this.mapCache = new RedissonMapCache<K, V>(evictionScheduler, commandExecutor, name, null, options);
+        this(commandExecutor, name, options, new RedissonMapCache<K, V>(evictionScheduler, commandExecutor, name, null, options));
     }
 
+    public RedissonMapCacheReactive(CommandReactiveExecutor commandExecutor, String name, MapOptions<K, V> options, RMapCacheAsync<K, V> mapCache) {
+        super(commandExecutor, name, mapCache);
+        this.mapCache = mapCache;
+    }
+    
     public RedissonMapCacheReactive(EvictionScheduler evictionScheduler, Codec codec, CommandReactiveExecutor commandExecutor, String name, MapOptions<K, V> options) {
-        super(codec, commandExecutor, name);
-        this.mapCache = new RedissonMapCache<K, V>(codec, evictionScheduler, commandExecutor, name, null, options);
+        this(codec, commandExecutor, name, options, new RedissonMapCache<K, V>(codec, evictionScheduler, commandExecutor, name, null, options));
+    }
+    
+    public RedissonMapCacheReactive(Codec codec, CommandReactiveExecutor commandExecutor, String name, MapOptions<K, V> options, RMapCacheAsync<K, V> mapCache) {
+        super(codec, commandExecutor, name, mapCache);
+        this.mapCache = mapCache;
     }
 
+    @Override
+    public Publisher<Void> setMaxSize(final int maxSize) {
+        return reactive(new Supplier<RFuture<Void>>() {
+            @Override
+            public RFuture<Void> get() {
+                return mapCache.setMaxSizeAsync(maxSize);
+            }
+        });
+    }
+    
+    @Override
+    public Publisher<Boolean> trySetMaxSize(final int maxSize) {
+        return reactive(new Supplier<RFuture<Boolean>>() {
+            @Override
+            public RFuture<Boolean> get() {
+                return mapCache.trySetMaxSizeAsync(maxSize);
+            }
+        });
+    }
+
+    @Override
+    public Publisher<Long> remainTimeToLive(final K key) {
+        return reactive(new Supplier<RFuture<Long>>() {
+            @Override
+            public RFuture<Long> get() {
+                return mapCache.remainTimeToLiveAsync(key);
+            }
+        });
+    }
+    
     @Override
     public Publisher<Boolean> containsKey(final Object key) {
         return reactive(new Supplier<RFuture<Boolean>>() {

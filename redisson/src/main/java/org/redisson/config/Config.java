@@ -30,6 +30,7 @@ import org.redisson.connection.ConnectionManager;
 import org.redisson.connection.DnsAddressResolverGroupFactory;
 import org.redisson.connection.AddressResolverGroupFactory;
 import org.redisson.connection.ReplicatedConnectionManager;
+import org.redisson.misc.URIBuilder;
 
 import io.netty.channel.EventLoopGroup;
 
@@ -94,6 +95,10 @@ public class Config {
     private AddressResolverGroupFactory addressResolverGroupFactory = new DnsAddressResolverGroupFactory();
 
     public Config() {
+    }
+    
+    static {
+        URIBuilder.patchUriObject();
     }
 
     public Config(Config oldConf) {
@@ -604,9 +609,11 @@ public class Config {
      * Switch to round robin {@link io.netty.resolver.dns.RoundRobinDnsAddressResolverGroup} when you need to optimize the url resolving.
      * 
      * @param addressResolverGroupFactory
+     * @return config
      */
-    public void setAddressResolverGroupFactory(AddressResolverGroupFactory addressResolverGroupFactory) {
+    public Config setAddressResolverGroupFactory(AddressResolverGroupFactory addressResolverGroupFactory) {
         this.addressResolverGroupFactory = addressResolverGroupFactory;
+        return this;
     }
     public AddressResolverGroupFactory getAddressResolverGroupFactory() {
         return addressResolverGroupFactory;

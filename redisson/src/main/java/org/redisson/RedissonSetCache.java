@@ -25,6 +25,7 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 import org.redisson.api.RFuture;
+import org.redisson.api.RLock;
 import org.redisson.api.RSetCache;
 import org.redisson.api.RedissonClient;
 import org.redisson.api.mapreduce.RCollectionMapReduce;
@@ -37,6 +38,7 @@ import org.redisson.client.protocol.decoder.ScanObjectEntry;
 import org.redisson.command.CommandAsyncExecutor;
 import org.redisson.eviction.EvictionScheduler;
 import org.redisson.mapreduce.RedissonCollectionMapReduce;
+import org.redisson.misc.Hash;
 import org.redisson.misc.RedissonPromise;
 
 import io.netty.buffer.ByteBuf;
@@ -126,6 +128,7 @@ public class RedissonSetCache<V> extends RedissonExpirable implements RSetCache<
         return get(f);
     }
 
+    @Override
     public RFuture<ListScanResult<ScanObjectEntry>> scanIteratorAsync(String name, RedisClient client, long startPos, String pattern) {
         List<Object> params = new ArrayList<Object>();
         params.add(startPos);
@@ -158,13 +161,13 @@ public class RedissonSetCache<V> extends RedissonExpirable implements RSetCache<
         return new RedissonBaseIterator<V>() {
 
             @Override
-            ListScanResult<ScanObjectEntry> iterator(RedisClient client, long nextIterPos) {
+            protected ListScanResult<ScanObjectEntry> iterator(RedisClient client, long nextIterPos) {
                 return scanIterator(getName(), client, nextIterPos, pattern);
             }
 
             @Override
-            void remove(V value) {
-                RedissonSetCache.this.remove(value);
+            protected void remove(ScanObjectEntry value) {
+                RedissonSetCache.this.remove((V)value.getObj());
             }
             
         };
@@ -349,6 +352,21 @@ public class RedissonSetCache<V> extends RedissonExpirable implements RSetCache<
     @Override
     public void clear() {
         delete();
+    }
+
+    private String getLockName(Object value) {
+        ByteBuf state = encode(value);
+        try {
+            return suffixName(getName(value), Hash.hash128toBase64(state) + ":lock");
+        } finally {
+            state.release();
+        }
+    }
+    
+    @Override
+    public RLock getLock(V value) {
+        String lockName = getLockName(value);
+        return new RedissonLock(commandExecutor, lockName);
     }
 
 }

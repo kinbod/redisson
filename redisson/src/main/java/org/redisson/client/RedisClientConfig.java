@@ -55,6 +55,7 @@ public class RedisClientConfig {
     private boolean keepAlive;
     private boolean tcpNoDelay;
     
+    private String sslHostname;
     private boolean sslEnableEndpointIdentification = true;
     private SslProvider sslProvider = SslProvider.JDK;
     private URI sslTruststore;
@@ -67,6 +68,7 @@ public class RedisClientConfig {
     
     RedisClientConfig(RedisClientConfig config) {
         super();
+        this.addr = config.addr;
         this.address = config.address;
         this.timer = config.timer;
         this.executor = config.executor;
@@ -89,8 +91,17 @@ public class RedisClientConfig {
         this.sslKeystore = config.sslKeystore;
         this.sslKeystorePassword = config.sslKeystorePassword;
         this.resolverGroup = config.resolverGroup;
+        this.sslHostname = config.sslHostname;
     }
     
+    public String getSslHostname() {
+        return sslHostname;
+    }
+    public RedisClientConfig setSslHostname(String sslHostname) {
+        this.sslHostname = sslHostname;
+        return this;
+    }
+
     public RedisClientConfig setAddress(String host, int port) {
         this.address = URIBuilder.create("redis://" + host + ":" + port);
         return this;

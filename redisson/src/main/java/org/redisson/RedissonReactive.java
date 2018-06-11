@@ -20,6 +20,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
+import org.redisson.api.BatchOptions;
 import org.redisson.api.ClusterNode;
 import org.redisson.api.MapOptions;
 import org.redisson.api.Node;
@@ -33,6 +34,7 @@ import org.redisson.api.RBucketReactive;
 import org.redisson.api.RDequeReactive;
 import org.redisson.api.RFuture;
 import org.redisson.api.RHyperLogLogReactive;
+import org.redisson.api.RKeys;
 import org.redisson.api.RKeysReactive;
 import org.redisson.api.RLexSortedSetReactive;
 import org.redisson.api.RListMultimapReactive;
@@ -41,6 +43,7 @@ import org.redisson.api.RLockReactive;
 import org.redisson.api.RMapCacheReactive;
 import org.redisson.api.RMapReactive;
 import org.redisson.api.RPatternTopicReactive;
+import org.redisson.api.RPermitExpirableSemaphoreReactive;
 import org.redisson.api.RQueueReactive;
 import org.redisson.api.RReadWriteLockReactive;
 import org.redisson.api.RScoredSortedSetReactive;
@@ -50,7 +53,9 @@ import org.redisson.api.RSetCacheReactive;
 import org.redisson.api.RSetMultimapReactive;
 import org.redisson.api.RSetReactive;
 import org.redisson.api.RTopicReactive;
+import org.redisson.api.RTransactionReactive;
 import org.redisson.api.RedissonReactiveClient;
+import org.redisson.api.TransactionOptions;
 import org.redisson.client.codec.Codec;
 import org.redisson.client.protocol.RedisCommands;
 import org.redisson.codec.ReferenceCodecProvider;
@@ -76,6 +81,7 @@ import org.redisson.reactive.RedissonLockReactive;
 import org.redisson.reactive.RedissonMapCacheReactive;
 import org.redisson.reactive.RedissonMapReactive;
 import org.redisson.reactive.RedissonPatternTopicReactive;
+import org.redisson.reactive.RedissonPermitExpirableSemaphoreReactive;
 import org.redisson.reactive.RedissonQueueReactive;
 import org.redisson.reactive.RedissonReadWriteLockReactive;
 import org.redisson.reactive.RedissonScoredSortedSetReactive;
@@ -85,6 +91,7 @@ import org.redisson.reactive.RedissonSetCacheReactive;
 import org.redisson.reactive.RedissonSetMultimapReactive;
 import org.redisson.reactive.RedissonSetReactive;
 import org.redisson.reactive.RedissonTopicReactive;
+import org.redisson.reactive.RedissonTransactionReactive;
 
 /**
  * Main infrastructure class allows to get access
@@ -120,6 +127,11 @@ public class RedissonReactive implements RedissonReactiveClient {
     }
     
     @Override
+    public RPermitExpirableSemaphoreReactive getPermitExpirableSemaphore(String name) {
+        return new RedissonPermitExpirableSemaphoreReactive(commandExecutor, name, semaphorePubSub);        
+    }
+    
+    @Override
     public RReadWriteLockReactive getReadWriteLock(String name) {
         return new RedissonReadWriteLockReactive(commandExecutor, name);
     }
@@ -151,10 +163,10 @@ public class RedissonReactive implements RedissonReactiveClient {
 
     @Override
     public <V> List<RBucketReactive<V>> findBuckets(String pattern) {
-        RFuture<Collection<String>> r = commandExecutor.readAllAsync(RedisCommands.KEYS, pattern);
-        Collection<String> keys = commandExecutor.get(r);
+        RKeys redissonKeys = new RedissonKeys(commandExecutor);
+        Iterable<String> keys = redissonKeys.getKeysByPattern(pattern);
 
-        List<RBucketReactive<V>> buckets = new ArrayList<RBucketReactive<V>>(keys.size());
+        List<RBucketReactive<V>> buckets = new ArrayList<RBucketReactive<V>>();
         for (Object key : keys) {
             if(key != null) {
                 buckets.add(this.<V>getBucket(key.toString()));
@@ -319,14 +331,19 @@ public class RedissonReactive implements RedissonReactiveClient {
     public RScriptReactive getScript() {
         return new RedissonScriptReactive(commandExecutor);
     }
-
+    
     @Override
-    public RBatchReactive createBatch() {
-        RedissonBatchReactive batch = new RedissonBatchReactive(evictionScheduler, connectionManager);
+    public RBatchReactive createBatch(BatchOptions options) {
+        RedissonBatchReactive batch = new RedissonBatchReactive(evictionScheduler, connectionManager, options);
         if (config.isReferenceEnabled()) {
             batch.enableRedissonReferenceSupport(this);
         }
         return batch;
+    }
+
+    @Override
+    public RBatchReactive createBatch() {
+        return createBatch(BatchOptions.defaults());
     }
 
     @Override
@@ -397,6 +414,11 @@ public class RedissonReactive implements RedissonReactiveClient {
     @Override
     public <K, V> RMapReactive<K, V> getMap(String name, Codec codec, MapOptions<K, V> options) {
         return new RedissonMapReactive<K, V>(codec, commandExecutor, name, options);
+    }
+
+    @Override
+    public RTransactionReactive createTransaction(TransactionOptions options) {
+        return new RedissonTransactionReactive(commandExecutor, options);
     }
 }
 

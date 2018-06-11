@@ -4,6 +4,82 @@ Redisson Releases History
 
 Try __[Redisson PRO](https://redisson.pro)__ version.
 
+### 02-Jun-2018 - versions 2.12.1 and 3.7.1 released
+Feature - `RRateLimiter` object moved to open-source version  
+Feature - ExecutorService task failover. Default failover interval is 60 seconds  
+Feature - `RScoredSortedSet.pollFirst` and `pollLast` methods with count parameter added  
+Feature - `RScoredSortedSet.pollFirst` and `pollLast` methods with timeout added  
+Feature - `RScoredSortedSet.pollFirstFromAny` and `pollLastFromAny` methods added  
+Improvement - `Node.time()` method returns `Time` object  
+Improvement -  RListReactive, RMapCacheReactive, RSetCacheReactive and RSetReactive are up-to-date to Async interfaces  
+Fixed - setPingConnectionInterval is not propagated for single server configuration  
+Fixed - ClusterConnectionManager should use shared resolverGroup  
+Fixed - value can't be added to BloomFilter  
+Fixed - Redis nodes with noaddr flag should be parsed correctly  
+Fixed - methods belongs to transactional objects get blocked at high concurrency  
+Fixed - Collection iterator doesn't use the same Redis node  
+Fixed - ExecuteService response queue expiration time set to one hour  
+Fixed - Executed remote tasks are not removed from Redis  
+Fixed - `reconnectionTimeout` and `failedAttempts` renamed in xsd schema  
+
+### 14-May-2018 - versions 2.12.0 and 3.7.0 released
+Feature - __Proxy mode__  Please refer to [documentation](https://github.com/redisson/redisson/wiki/2.-Configuration#29-proxy-mode) for more details  
+Feature - __Transaction API implementation__  Please refer to [documentation](https://github.com/redisson/redisson/wiki/10.-additional-features/#104-transactions) for more details  
+Feature - __Spring Transaction API implementation__  Please refer to [documentation](https://github.com/redisson/redisson/wiki/14.-Integration-with-frameworks/#147-spring-transaction-manager) for more details  
+Feature - __XA Transaction API implementation__  Please refer to [documentation](https://github.com/redisson/redisson/wiki/10.-additional-features/#105-xa-transactions) for more details  
+Feature - `RPermitExpirableSemaphoreReactive` object added  
+Feature - `RMap.fastReplace` method added  
+Feature - PING support for Pub/Sub connections  
+Improvement - `RBatch` object settings extracted as BatchOptions object  
+Improvement - `RBitSet.set` method should return boolean  
+Fixed - New IP discovery through DNS doesn't work for cluster mode  
+Fixed - replication for Tomcat Session Manager with `readMode=INMEMORY`  
+Fixed - `pingConnectionInterval` is not applied  
+Fixed - JDK10 compatibility  
+Fixed - `RLiveObjectService.delete` throws NPE if entity doesn't exist  
+Fixed - `RSemaphore` object doesn't work with zero permit  
+Fixed - `RExecutorService.countActiveWorkers` hangs if there are no registered workers  
+Fixed - Iterator loop and incorrect result returning  
+Fixed - SSL connection to Azure redis is failed  
+Fixed - NPE in SentinelConnectionManager  
+Fixed - RemoteService synchronous invocations aren't thread safe (regression since 2.10.5 / 3.5.5 versions)  
+Fixed - `bad argument #1 to 'len' (string expected, got boolean)` error arise for `RMapCache` object  
+Fixed - `RedisTimeoutException` arise during blocking command execution on RBlockingQueue and RBlockingDeque objects  
+
+### 09-Apr-2018 - versions 2.11.5 and 3.6.5 released
+Feature - `RKeys.copy` method added  
+Feature - `RObject.copy` method added  
+Feature - `RSetCache.getLock` method added  
+Fixed - `ClusterConnectionManager` throws `IllegalArgumentException`  
+Fixed - `CommandDecoder` doesn't remove command from commands queue when response was decoded with error  
+Fixed - `RSetMultimap.get()` doesn't create multimap entry in case of absence  
+Fixed - an error shouldn't appear if Redisson successfully got the information at least from one sentinel/cluster Redis node  
+Fixed - `RObject.migrate` method  
+Fixed - hdel comand wasn't used during remote service task removal  
+
+### 27-Mar-2018 - versions 2.11.4 and 3.6.4 released
+
+Feature - `RSet.getLock` method added  
+Fixed - race condition with load balancer node selection  
+Fixed - `READONLY can't write against a read only slave` error during failover  
+Fixed - NPE during failover in Sentinel mode  
+Fixed - `JCache.getAll` causes io.netty.util.IllegalReferenceCountException  
+Fixed - NPE in CommandDecoder handler while using RBatch object  
+Fixed - `RSortedSet` object tries to compare wrong types  
+Fixed - `ClassCastException` in `RListMultimapCache.removeAll` method  
+
+### 14-Mar-2018 - versions 2.11.3 and 3.6.3 released
+
+Feature - DNS monitoring for Sentinel nodes  
+Fixed - Old/stale nodes not removed from NodesGroup  
+Fixed - CertificateException while connecting over SSL to Azure or AWS Elasticache config endpoint  
+Fixed - publish subscribe connections couldn't be resubscribed during failover  
+Fixed - RedissonRedLock.tryLock doesn't work for some values of wait time parameter  
+Fixed - NPE in JCache.getAndRemoveValue  
+Fixed - memory leak in publish subscribe  
+Fixed - codec classLoader wasn't used in `ExecutorService` and `RemoteService` objects  
+Fixed - warning for disconnected slaves in sentinel mode  
+
 ### 05-Mar-2018 - versions 2.11.2 and 3.6.2 released
 
 [Redisson PRO](https://redisson.pro) performance improvements for follow `performanceMode` values:

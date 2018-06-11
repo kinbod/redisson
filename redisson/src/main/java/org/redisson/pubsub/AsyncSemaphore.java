@@ -119,5 +119,12 @@ public class AsyncSemaphore {
             acquire(runnable);
         }
     }
+
+    @Override
+    public String toString() {
+        return String.valueOf(counter);
+    }
+    
+    
     
 }

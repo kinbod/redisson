@@ -13,29 +13,28 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.redisson.client.protocol.decoder;
-
-import java.util.List;
-
-import org.redisson.client.handler.State;
-import org.redisson.client.protocol.Decoder;
+package org.redisson.tomcat;
 
 /**
  * 
  * @author Nikita Koksharov
  *
- * @param <T> type
  */
-public class ObjectFirstResultReplayDecoder<T> implements MultiDecoder<T> {
+public class AttributeRemoveMessage extends AttributeMessage {
 
-    @Override
-    public T decode(List<Object> parts, State state) {
-        return (T) parts.get(0);
+    private String name;
+    
+    public AttributeRemoveMessage() {
+        super();
     }
 
-    @Override
-    public Decoder<Object> getDecoder(int paramNum, State state) {
-        return null;
+    public AttributeRemoveMessage(String sessionId, String name) {
+        super(sessionId);
+        this.name = name;
     }
 
+    public String getName() {
+        return name;
+    }
+    
 }

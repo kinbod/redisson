@@ -15,6 +15,12 @@
  */
 package org.redisson.client.protocol;
 
+/**
+ * 
+ * @author Nikita Koksharov
+ *
+ * @param <V> value type
+ */
 public class ScoredEntry<V> {
 
     private final Double score;

@@ -18,7 +18,9 @@ package org.redisson;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
 
+import org.redisson.api.BatchOptions;
 import org.redisson.api.ClusterNodesGroup;
+import org.redisson.api.ExecutorOptions;
 import org.redisson.api.LocalCachedMapOptions;
 import org.redisson.api.MapOptions;
 import org.redisson.api.Node;
@@ -58,6 +60,7 @@ import org.redisson.api.RPriorityBlockingQueue;
 import org.redisson.api.RPriorityDeque;
 import org.redisson.api.RPriorityQueue;
 import org.redisson.api.RQueue;
+import org.redisson.api.RRateLimiter;
 import org.redisson.api.RReadWriteLock;
 import org.redisson.api.RRemoteService;
 import org.redisson.api.RScheduledExecutorService;
@@ -70,8 +73,10 @@ import org.redisson.api.RSetMultimap;
 import org.redisson.api.RSetMultimapCache;
 import org.redisson.api.RSortedSet;
 import org.redisson.api.RTopic;
+import org.redisson.api.RTransaction;
 import org.redisson.api.RedissonClient;
 import org.redisson.api.RedissonReactiveClient;
+import org.redisson.api.TransactionOptions;
 import org.redisson.client.codec.Codec;
 import org.redisson.command.CommandExecutor;
 import org.redisson.config.Config;
@@ -81,6 +86,7 @@ import org.redisson.eviction.EvictionScheduler;
 import org.redisson.misc.RedissonObjectFactory;
 import org.redisson.pubsub.SemaphorePubSub;
 import org.redisson.remote.ResponseEntry;
+import org.redisson.transaction.RedissonTransaction;
 
 import io.netty.util.internal.PlatformDependent;
 
@@ -204,6 +210,11 @@ public class Redisson implements RedissonClient {
         return new RedissonBucket<V>(connectionManager.getCommandExecutor(), name);
     }
 
+    @Override
+    public RRateLimiter getRateLimiter(String name) {
+        return new RedissonRateLimiter(connectionManager.getCommandExecutor(), name);
+    }
+    
     @Override
     public <V> RBucket<V> getBucket(String name, Codec codec) {
         return new RedissonBucket<V>(codec, connectionManager.getCommandExecutor(), name);
@@ -371,7 +382,12 @@ public class Redisson implements RedissonClient {
 
     @Override
     public RScheduledExecutorService getExecutorService(String name) {
-        return new RedissonExecutorService(connectionManager.getCodec(), connectionManager.getCommandExecutor(), this, name, queueTransferService, responses);
+        return getExecutorService(name, connectionManager.getCodec());
+    }
+    
+    @Override
+    public RScheduledExecutorService getExecutorService(String name, ExecutorOptions options) {
+        return getExecutorService(name, connectionManager.getCodec(), options);
     }
     
     @Override
@@ -382,7 +398,12 @@ public class Redisson implements RedissonClient {
 
     @Override
     public RScheduledExecutorService getExecutorService(String name, Codec codec) {
-        return new RedissonExecutorService(codec, connectionManager.getCommandExecutor(), this, name, queueTransferService, responses);
+        return getExecutorService(name, codec, ExecutorOptions.defaults());
+    }
+    
+    @Override
+    public RScheduledExecutorService getExecutorService(String name, Codec codec, ExecutorOptions options) {
+        return new RedissonExecutorService(codec, connectionManager.getCommandExecutor(), this, name, queueTransferService, responses, options);
     }
     
     @Override
@@ -570,12 +591,22 @@ public class Redisson implements RedissonClient {
     }
 
     @Override
-    public RBatch createBatch() {
-        RedissonBatch batch = new RedissonBatch(evictionScheduler, connectionManager);
+    public RTransaction createTransaction(TransactionOptions options) {
+        return new RedissonTransaction(connectionManager.getCommandExecutor(), options);
+    }
+
+    @Override
+    public RBatch createBatch(BatchOptions options) {
+        RedissonBatch batch = new RedissonBatch(evictionScheduler, connectionManager, options);
         if (config.isReferenceEnabled()) {
             batch.enableRedissonReferenceSupport(this);
         }
         return batch;
+    }
+    
+    @Override
+    public RBatch createBatch() {
+        return createBatch(BatchOptions.defaults());
     }
 
     @Override

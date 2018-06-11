@@ -45,6 +45,7 @@ import io.netty.handler.ssl.SslContextBuilder;
 import io.netty.handler.ssl.SslHandler;
 import io.netty.handler.ssl.SslHandshakeCompletionEvent;
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
+import io.netty.util.NetUtil;
 
 /**
  * 
@@ -162,7 +163,12 @@ public class RedisChannelInitializer extends ChannelInitializer<Channel> {
         }
 
         SslContext sslContext = sslContextBuilder.build();
-        SSLEngine sslEngine = sslContext.newEngine(ch.alloc(), config.getAddress().getHost(), config.getAddress().getPort());
+        String hostname = config.getSslHostname();
+        if (hostname == null || NetUtil.createByteArrayFromIpAddressString(hostname) != null) {
+            hostname = config.getAddress().getHost();
+        }
+        
+        SSLEngine sslEngine = sslContext.newEngine(ch.alloc(), hostname, config.getAddress().getPort());
         sslEngine.setSSLParameters(sslParams);
         
         SslHandler sslHandler = new SslHandler(sslEngine);
