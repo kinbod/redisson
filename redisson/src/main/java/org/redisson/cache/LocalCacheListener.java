@@ -19,9 +19,9 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashSet;
-import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
 
 import org.redisson.RedissonListMultimapCache;
@@ -63,7 +63,7 @@ public abstract class LocalCacheListener {
     public static final String DISABLED_KEYS_SUFFIX = "disabled-keys";
     public static final String DISABLED_ACK_SUFFIX = ":topic";
     
-    private Map<CacheKey, String> disabledKeys = new ConcurrentHashMap<CacheKey, String>();
+    private ConcurrentMap<CacheKey, String> disabledKeys = new ConcurrentHashMap<CacheKey, String>();
     
     private static final Logger log = LoggerFactory.getLogger(LocalCacheListener.class);
     
@@ -77,7 +77,7 @@ public abstract class LocalCacheListener {
     
     private long cacheUpdateLogTime;
     private volatile long lastInvalidate;
-    private RTopic<Object> invalidationTopic;
+    private RTopic invalidationTopic;
     private int syncListenerId;
     private int reconnectionListenerId;
     
@@ -99,7 +99,7 @@ public abstract class LocalCacheListener {
     }
     
     public void add() {
-        invalidationTopic = new RedissonTopic<Object>(LocalCachedMessageCodec.INSTANCE, commandExecutor, getInvalidationTopicName());
+        invalidationTopic = new RedissonTopic(LocalCachedMessageCodec.INSTANCE, commandExecutor, getInvalidationTopicName());
 
         if (options.getReconnectionStrategy() != ReconnectionStrategy.NONE) {
             reconnectionListenerId = invalidationTopic.addListener(new BaseStatusListener() {
@@ -156,9 +156,9 @@ public abstract class LocalCacheListener {
         }
         
         if (options.getSyncStrategy() != SyncStrategy.NONE) {
-            syncListenerId = invalidationTopic.addListener(new MessageListener<Object>() {
+            syncListenerId = invalidationTopic.addListener(Object.class, new MessageListener<Object>() {
                 @Override
-                public void onMessage(String channel, Object msg) {
+                public void onMessage(CharSequence channel, Object msg) {
                     if (msg instanceof LocalCachedMapDisable) {
                         LocalCachedMapDisable m = (LocalCachedMapDisable) msg;
                         String requestId = m.getRequestId();
@@ -170,7 +170,7 @@ public abstract class LocalCacheListener {
                         
                         disableKeys(requestId, keysToDisable, m.getTimeout());
                         
-                        RedissonTopic<Object> topic = new RedissonTopic<Object>(LocalCachedMessageCodec.INSTANCE, 
+                        RedissonTopic topic = new RedissonTopic(LocalCachedMessageCodec.INSTANCE, 
                                                             commandExecutor, RedissonObject.suffixName(name, requestId + DISABLED_ACK_SUFFIX));
                         topic.publishAsync(new LocalCachedMapDisableAck());
                     }

@@ -24,10 +24,12 @@ import java.util.concurrent.ExecutorService;
 
 import org.redisson.client.codec.Codec;
 import org.redisson.codec.DefaultReferenceCodecProvider;
+import org.redisson.codec.FstCodec;
 import org.redisson.codec.JsonJacksonCodec;
 import org.redisson.codec.ReferenceCodecProvider;
 import org.redisson.connection.ConnectionManager;
 import org.redisson.connection.DnsAddressResolverGroupFactory;
+import org.redisson.connection.MultiDnsAddressResolverGroupFactory;
 import org.redisson.connection.AddressResolverGroupFactory;
 import org.redisson.connection.ReplicatedConnectionManager;
 import org.redisson.misc.URIBuilder;
@@ -89,10 +91,12 @@ public class Config {
     
     private boolean keepPubSubOrder = true;
     
+    private boolean useScriptCache = false;
+    
     /**
      * AddressResolverGroupFactory switch between default and round robin
      */
-    private AddressResolverGroupFactory addressResolverGroupFactory = new DnsAddressResolverGroupFactory();
+    private AddressResolverGroupFactory addressResolverGroupFactory = new MultiDnsAddressResolverGroupFactory();
 
     public Config() {
     }
@@ -108,8 +112,10 @@ public class Config {
         if (oldConf.getCodec() == null) {
             // use it by default
             oldConf.setCodec(new JsonJacksonCodec());
+//            oldConf.setCodec(new FstCodec());
         }
 
+        setUseScriptCache(oldConf.isUseScriptCache());
         setKeepPubSubOrder(oldConf.isKeepPubSubOrder());
         setLockWatchdogTimeout(oldConf.getLockWatchdogTimeout());
         setNettyThreads(oldConf.getNettyThreads());
@@ -413,6 +419,10 @@ public class Config {
     public boolean isClusterConfig() {
         return clusterServersConfig != null;
     }
+    
+    public boolean isSentinelConfig() {
+        return sentinelServersConfig != null;
+    }
 
     public int getThreads() {
         return threads;
@@ -586,7 +596,7 @@ public class Config {
     }
 
     /**
-     * Defines whether keep PubSub messages handling in arrival order 
+     * Defines whether to keep PubSub messages handling in arrival order 
      * or handle messages concurrently. 
      * <p>
      * This setting applied only for PubSub messages per channel.
@@ -777,4 +787,26 @@ public class Config {
         return support.toYAML(this);
     }
 
+    /**
+     * Defines whether to use Lua-script cache on Redis side. 
+     * Most Redisson methods are Lua-script based and this setting turned
+     * on could increase speed of such methods execution and save network traffic.
+     * <p>
+     * NOTE: <code>readMode</code> option is not taken into account for such calls 
+     * as Redis slave redirects execution of cached Lua-script on Redis master node. 
+     * <p>
+     * Default is <code>false</code>.
+     * 
+     * @param useScriptCache - <code>true</code> if Lua-script caching is required, <code>false</code> otherwise.
+     * @return config
+     */
+    public Config setUseScriptCache(boolean useScriptCache) {
+        this.useScriptCache = useScriptCache;
+        return this;
+    }
+    public boolean isUseScriptCache() {
+        return useScriptCache;
+    }
+
+    
 }

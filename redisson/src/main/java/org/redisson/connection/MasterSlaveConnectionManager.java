@@ -15,13 +15,11 @@
  */
 package org.redisson.connection;
 
-import java.lang.reflect.Field;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -66,7 +64,8 @@ import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioDatagramChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
-import io.netty.resolver.dns.DnsAddressResolverGroup;
+import io.netty.resolver.AddressResolverGroup;
+import io.netty.resolver.DefaultAddressResolverGroup;
 import io.netty.resolver.dns.DnsServerAddressStreamProviders;
 import io.netty.util.HashedWheelTimer;
 import io.netty.util.Timeout;
@@ -148,7 +147,7 @@ public class MasterSlaveConnectionManager implements ConnectionManager {
 
     private final Config cfg;
 
-    protected final DnsAddressResolverGroup resolverGroup;
+    protected final AddressResolverGroup<InetSocketAddress> resolverGroup;
     
     private PublishSubscribeService subscribeService;
     
@@ -174,7 +173,11 @@ public class MasterSlaveConnectionManager implements ConnectionManager {
             }
 
             this.socketChannelClass = EpollSocketChannel.class;
-            this.resolverGroup = cfg.getAddressResolverGroupFactory().create(EpollDatagramChannel.class, DnsServerAddressStreamProviders.platformDefault());
+            if (PlatformDependent.isAndroid()) {
+                this.resolverGroup = DefaultAddressResolverGroup.INSTANCE;
+            } else {
+                this.resolverGroup = cfg.getAddressResolverGroupFactory().create(EpollDatagramChannel.class, DnsServerAddressStreamProviders.platformDefault());
+            }
         } else if (cfg.getTransportMode() == TransportMode.KQUEUE) {
             if (cfg.getEventLoopGroup() == null) {
                 this.group = new KQueueEventLoopGroup(cfg.getNettyThreads(), new DefaultThreadFactory("redisson-netty"));
@@ -183,7 +186,11 @@ public class MasterSlaveConnectionManager implements ConnectionManager {
             }
 
             this.socketChannelClass = KQueueSocketChannel.class;
-            this.resolverGroup = cfg.getAddressResolverGroupFactory().create(KQueueDatagramChannel.class, DnsServerAddressStreamProviders.platformDefault());
+            if (PlatformDependent.isAndroid()) {
+                this.resolverGroup = DefaultAddressResolverGroup.INSTANCE;
+            } else {
+                this.resolverGroup = cfg.getAddressResolverGroupFactory().create(KQueueDatagramChannel.class, DnsServerAddressStreamProviders.platformDefault());
+            }
         } else {
             if (cfg.getEventLoopGroup() == null) {
                 this.group = new NioEventLoopGroup(cfg.getNettyThreads(), new DefaultThreadFactory("redisson-netty"));
@@ -192,7 +199,11 @@ public class MasterSlaveConnectionManager implements ConnectionManager {
             }
 
             this.socketChannelClass = NioSocketChannel.class;
-            this.resolverGroup = cfg.getAddressResolverGroupFactory().create(NioDatagramChannel.class, DnsServerAddressStreamProviders.platformDefault());
+            if (PlatformDependent.isAndroid()) {
+                this.resolverGroup = DefaultAddressResolverGroup.INSTANCE;
+            } else {
+                this.resolverGroup = cfg.getAddressResolverGroupFactory().create(NioDatagramChannel.class, DnsServerAddressStreamProviders.platformDefault());
+            }
         }
         
         if (cfg.getExecutor() == null) {
@@ -242,7 +253,7 @@ public class MasterSlaveConnectionManager implements ConnectionManager {
         }
 
         if (addr != null) {
-            client = createClient(NodeType.MASTER, addr, cfg.getConnectTimeout(), cfg.getRetryInterval() * cfg.getRetryAttempts(), sslHostname);
+            client = createClient(NodeType.MASTER, addr, cfg.getConnectTimeout(), cfg.getTimeout(), sslHostname);
         }
         final RPromise<RedisConnection> result = new RedissonPromise<RedisConnection>();
         RFuture<RedisConnection> future = client.connectAsync();
@@ -315,16 +326,7 @@ public class MasterSlaveConnectionManager implements ConnectionManager {
             minTimeout = 100;
         }
         
-        timer = new HashedWheelTimer(Executors.defaultThreadFactory(), minTimeout, TimeUnit.MILLISECONDS, 1024);
-        
-        // to avoid assertion error during timer.stop invocation
-        try {
-            Field leakField = HashedWheelTimer.class.getDeclaredField("leak");
-            leakField.setAccessible(true);
-            leakField.set(timer, null);
-        } catch (Exception e) {
-            throw new IllegalStateException(e);
-        }
+        timer = new HashedWheelTimer(Executors.defaultThreadFactory(), minTimeout, TimeUnit.MILLISECONDS, 1024, false);
         
         connectionWatcher = new IdleConnectionWatcher(this, config);
         subscribeService = new PublishSubscribeService(this, config);
@@ -332,14 +334,11 @@ public class MasterSlaveConnectionManager implements ConnectionManager {
 
     protected void initSingleEntry() {
         try {
-            HashSet<ClusterSlotRange> slots = new HashSet<ClusterSlotRange>();
-            slots.add(singleSlotRange);
-    
             MasterSlaveEntry entry;
             if (config.checkSkipSlavesInit()) {
-                entry = new SingleEntry(slots, this, config);
+                entry = new SingleEntry(this, config);
             } else {
-                entry = createMasterSlaveEntry(config, slots);
+                entry = createMasterSlaveEntry(config);
             }
             RFuture<RedisClient> f = entry.setupMasterEntry(config.getMasterAddress());
             f.syncUninterruptibly();
@@ -363,9 +362,8 @@ public class MasterSlaveConnectionManager implements ConnectionManager {
         }
     }
     
-    protected MasterSlaveEntry createMasterSlaveEntry(MasterSlaveServersConfig config,
-            HashSet<ClusterSlotRange> slots) {
-        MasterSlaveEntry entry = new MasterSlaveEntry(slots, this, config);
+    protected MasterSlaveEntry createMasterSlaveEntry(MasterSlaveServersConfig config) {
+        MasterSlaveEntry entry = new MasterSlaveEntry(this, config);
         List<RFuture<Void>> fs = entry.initSlaveBalancer(java.util.Collections.<URI>emptySet());
         for (RFuture<Void> future : fs) {
             future.syncUninterruptibly();
@@ -406,19 +404,20 @@ public class MasterSlaveConnectionManager implements ConnectionManager {
         c.setReadMode(cfg.getReadMode());
         c.setSubscriptionMode(cfg.getSubscriptionMode());
         c.setDnsMonitoringInterval(cfg.getDnsMonitoringInterval());
+        c.setKeepAlive(cfg.isKeepAlive());
 
         return c;
     }
 
     @Override
     public RedisClient createClient(NodeType type, URI address, String sslHostname) {
-        RedisClient client = createClient(type, address, config.getConnectTimeout(), config.getRetryInterval() * config.getRetryAttempts(), sslHostname);
+        RedisClient client = createClient(type, address, config.getConnectTimeout(), config.getTimeout(), sslHostname);
         return client;
     }
     
     @Override
     public RedisClient createClient(NodeType type, InetSocketAddress address, URI uri, String sslHostname) {
-        RedisClient client = createClient(type, address, uri, config.getConnectTimeout(), config.getRetryInterval() * config.getRetryAttempts(), sslHostname);
+        RedisClient client = createClient(type, address, uri, config.getConnectTimeout(), config.getTimeout(), sslHostname);
         return client;
     }
 
@@ -471,6 +470,10 @@ public class MasterSlaveConnectionManager implements ConnectionManager {
         return singleSlotRange.getStartSlot();
     }
 
+    @Override
+    public int calcSlot(byte[] key) {
+        return singleSlotRange.getStartSlot();
+    }
 
     @Override
     public MasterSlaveEntry getEntry(InetSocketAddress address) {
@@ -515,29 +518,33 @@ public class MasterSlaveConnectionManager implements ConnectionManager {
         return slot2entry.get(slot);
     }
     
-    protected final void changeMaster(int slot, URI address) {
+    protected final RFuture<RedisClient> changeMaster(int slot, URI address) {
         final MasterSlaveEntry entry = getEntry(slot);
-        client2entry.remove(entry.getClient());
-        entry.changeMaster(address).addListener(new FutureListener<RedisClient>() {
+        final RedisClient oldClient = entry.getClient();
+        RFuture<RedisClient> future = entry.changeMaster(address);
+        future.addListener(new FutureListener<RedisClient>() {
             @Override
             public void operationComplete(Future<RedisClient> future) throws Exception {
                 if (future.isSuccess()) {
+                    client2entry.remove(oldClient);
                     client2entry.put(entry.getClient(), entry);
                 }
             }
         });
+        return future;
     }
-
+    
     protected final void addEntry(Integer slot, MasterSlaveEntry entry) {
-        slot2entry.set(slot, entry);
-        entry.addSlotRange(slot);
+        MasterSlaveEntry oldEntry = slot2entry.getAndSet(slot, entry);
+        if (oldEntry != entry) {
+            entry.incReference();
+        }
         client2entry.put(entry.getClient(), entry);
     }
 
     protected final MasterSlaveEntry removeEntry(Integer slot) {
         MasterSlaveEntry entry = slot2entry.getAndSet(slot, null);
-        entry.removeSlotRange(slot);
-        if (entry.getSlotRanges().isEmpty()) {
+        if (entry.decReference() == 0) {
             client2entry.remove(entry.getClient());
         }
         return entry;
@@ -617,6 +624,8 @@ public class MasterSlaveConnectionManager implements ConnectionManager {
         if (dnsMonitor != null) {
             dnsMonitor.stop();
         }
+        
+        connectionWatcher.stop();
 
         if (cfg.getExecutor() == null) {
             executor.shutdown();
@@ -627,12 +636,6 @@ public class MasterSlaveConnectionManager implements ConnectionManager {
             }
         }
 
-        timer.stop();
-        
-        shutdownLatch.close();
-        shutdownPromise.trySuccess(true);
-        shutdownLatch.awaitUninterruptibly();
-
         RPromise<Void> result = new RedissonPromise<Void>();
         CountableListener<Void> listener = new CountableListener<Void>(result, null, getEntrySet().size());
         for (MasterSlaveEntry entry : getEntrySet()) {
@@ -641,6 +644,11 @@ public class MasterSlaveConnectionManager implements ConnectionManager {
         
         result.awaitUninterruptibly(timeout, unit);
         resolverGroup.close();
+
+        timer.stop();
+        shutdownLatch.close();
+        shutdownPromise.trySuccess(true);
+        shutdownLatch.awaitUninterruptibly();
         
         if (cfg.getEventLoopGroup() == null) {
             group.shutdownGracefully(quietPeriod, timeout, unit).syncUninterruptibly();
@@ -688,14 +696,7 @@ public class MasterSlaveConnectionManager implements ConnectionManager {
     }
 
     protected void stopThreads() {
-        timer.stop();
-        executor.shutdown();
-        try {
-            executor.awaitTermination(15, TimeUnit.SECONDS);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-        group.shutdownGracefully().syncUninterruptibly();
+        shutdown();
     }
     
     public PublishSubscribeService getSubscribeService() {

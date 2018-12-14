@@ -20,14 +20,82 @@ import java.util.Set;
 import org.reactivestreams.Publisher;
 
 /**
- * Async set functions
+ * Reactive interface for RSet object
  *
  * @author Nikita Koksharov
  *
  * @param <V> value
  */
-public interface RSetReactive<V> extends RCollectionReactive<V> {
+public interface RSetReactive<V> extends RCollectionReactive<V>, RSortableReactive<Set<V>> {
 
+    /**
+     * Returns <code>RPermitExpirableSemaphore</code> instance associated with <code>value</code>
+     * 
+     * @param value - set value
+     * @return RPermitExpirableSemaphore object
+     */
+    RPermitExpirableSemaphoreReactive getPermitExpirableSemaphore(V value);
+
+    /**
+     * Returns <code>RSemaphore</code> instance associated with <code>value</code>
+     * 
+     * @param value - set value
+     * @return RSemaphore object
+     */
+    RSemaphoreReactive getSemaphore(V value);
+    
+    /**
+     * Returns <code>RLock</code> instance associated with <code>value</code>
+     * 
+     * @param value - set value
+     * @return RLock object
+     */
+    RLockReactive getFairLock(V value);
+    
+    /**
+     * Returns <code>RReadWriteLock</code> instance associated with <code>value</code>
+     * 
+     * @param value - set value
+     * @return RReadWriteLock object
+     */
+    RReadWriteLockReactive getReadWriteLock(V value);
+    
+    /**
+     * Returns lock instance associated with <code>value</code>
+     * 
+     * @param value - set value
+     * @return RLock object
+     */
+    RLockReactive getLock(V value);
+    
+    /**
+     * Returns an iterator over elements in this set.
+     * Elements are loaded in batch. Batch size is defined by <code>count</code> param. 
+     * 
+     * @param count - size of elements batch
+     * @return iterator
+     */
+    Publisher<V> iterator(int count);
+    
+    /**
+     * Returns an iterator over elements in this set.
+     * Elements are loaded in batch. Batch size is defined by <code>count</code> param.
+     * If pattern is not null then only elements match this pattern are loaded.
+     * 
+     * @param pattern - search pattern
+     * @param count - size of elements batch
+     * @return iterator
+     */
+    Publisher<V> iterator(String pattern, int count);
+    
+    /**
+     * Returns iterator over elements in this set matches <code>pattern</code>. 
+     * 
+     * @param pattern - search pattern
+     * @return iterator
+     */
+    Publisher<V> iterator(String pattern);
+    
     /**
      * Removes and returns random elements from set
      * in async mode

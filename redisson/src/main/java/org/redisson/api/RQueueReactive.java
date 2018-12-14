@@ -18,7 +18,7 @@ package org.redisson.api;
 import org.reactivestreams.Publisher;
 
 /**
- * {@link java.util.Queue} backed by Redis
+ * Reactive interface for Queue object
  *
  * @author Nikita Koksharov
  *
@@ -30,7 +30,7 @@ public interface RQueueReactive<V> extends RCollectionReactive<V> {
 
     Publisher<V> poll();
 
-    Publisher<Integer> offer(V e);
+    Publisher<Boolean> offer(V e);
 
     Publisher<V> pollLastAndOfferFirstTo(String queueName);
 

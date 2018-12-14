@@ -15,13 +15,13 @@
  */
 package org.redisson.reactive;
 
-import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
-import org.reactivestreams.Subscription;
+import org.redisson.api.RFuture;
 import org.redisson.client.RedisClient;
 import org.redisson.client.protocol.decoder.ListScanResult;
-import org.redisson.client.protocol.decoder.ScanObjectEntry;
 
+import io.netty.util.concurrent.Future;
+import io.netty.util.concurrent.FutureListener;
 import reactor.rx.Stream;
 import reactor.rx.subscription.ReactiveSubscription;
 
@@ -49,41 +49,33 @@ public abstract class SetReactiveIterator<V> extends Stream<V> {
 
             protected void nextValues() {
                 final ReactiveSubscription<V> m = this;
-                scanIteratorReactive(client, nextIterPos).subscribe(new Subscriber<ListScanResult<ScanObjectEntry>>() {
-
+                scanIterator(client, nextIterPos).addListener(new FutureListener<ListScanResult<Object>>() {
                     @Override
-                    public void onSubscribe(Subscription s) {
-                        s.request(Long.MAX_VALUE);
-                    }
-
-                    @Override
-                    public void onNext(ListScanResult<ScanObjectEntry> res) {
+                    public void operationComplete(Future<ListScanResult<Object>> future) throws Exception {
+                        if (!future.isSuccess()) {
+                            m.onError(future.cause());
+                            return;
+                        }
+                        
                         if (finished) {
                             client = null;
                             nextIterPos = 0;
                             return;
                         }
 
+                        ListScanResult<Object> res = future.getNow();
                         client = res.getRedisClient();
                         nextIterPos = res.getPos();
                         
-                        for (ScanObjectEntry val : res.getValues()) {
-                            m.onNext((V)val.getObj());
+                        for (Object val : res.getValues()) {
+                            m.onNext((V)val);
                         }
 
                         if (res.getPos() == 0) {
                             finished = true;
                             m.onComplete();
                         }
-                    }
-
-                    @Override
-                    public void onError(Throwable error) {
-                        m.onError(error);
-                    }
-
-                    @Override
-                    public void onComplete() {
+                        
                         if (finished) {
                             return;
                         }
@@ -94,6 +86,6 @@ public abstract class SetReactiveIterator<V> extends Stream<V> {
         });
     }
     
-    protected abstract Publisher<ListScanResult<ScanObjectEntry>> scanIteratorReactive(RedisClient client, long nextIterPos);
+    protected abstract RFuture<ListScanResult<Object>> scanIterator(RedisClient client, long nextIterPos);
 
 }

@@ -39,7 +39,6 @@ import org.redisson.api.map.event.MapEntryListener;
 import org.redisson.client.RedisClient;
 import org.redisson.client.codec.Codec;
 import org.redisson.client.codec.LongCodec;
-import org.redisson.client.codec.MapScanCodec;
 import org.redisson.client.codec.StringCodec;
 import org.redisson.client.protocol.RedisCommand;
 import org.redisson.client.protocol.RedisCommand.ValueType;
@@ -52,11 +51,11 @@ import org.redisson.client.protocol.decoder.MapCacheScanResultReplayDecoder;
 import org.redisson.client.protocol.decoder.MapScanResult;
 import org.redisson.client.protocol.decoder.ObjectListDecoder;
 import org.redisson.client.protocol.decoder.ObjectMapDecoder;
-import org.redisson.client.protocol.decoder.ScanObjectEntry;
 import org.redisson.codec.MapCacheEventCodec;
 import org.redisson.command.CommandAsyncExecutor;
 import org.redisson.connection.decoder.MapGetAllDecoder;
 import org.redisson.eviction.EvictionScheduler;
+import org.redisson.misc.RedissonPromise;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.util.concurrent.Future;
@@ -83,12 +82,15 @@ import io.netty.util.concurrent.FutureListener;
  */
 public class RedissonMapCache<K, V> extends RedissonMap<K, V> implements RMapCache<K, V> {
 
+    private EvictionScheduler evictionScheduler;
+    
     public RedissonMapCache(EvictionScheduler evictionScheduler, CommandAsyncExecutor commandExecutor,
                             String name, RedissonClient redisson, MapOptions<K, V> options) {
         super(commandExecutor, name, redisson, options);
         if (evictionScheduler != null) {
             evictionScheduler.schedule(getName(), getTimeoutSetName(), getIdleSetName(), getExpiredChannelName(), getLastAccessTimeSetName());
         }
+        this.evictionScheduler = evictionScheduler;
     }
 
     public RedissonMapCache(Codec codec, EvictionScheduler evictionScheduler, CommandAsyncExecutor commandExecutor,
@@ -97,6 +99,7 @@ public class RedissonMapCache<K, V> extends RedissonMap<K, V> implements RMapCac
         if (evictionScheduler != null) {
             evictionScheduler.schedule(getName(), getTimeoutSetName(), getIdleSetName(), getExpiredChannelName(), getLastAccessTimeSetName());
         }
+        this.evictionScheduler = evictionScheduler;
     }
 
     @Override
@@ -616,6 +619,31 @@ public class RedissonMapCache<K, V> extends RedissonMap<K, V> implements RMapCac
                 Arrays.<Object>asList(getName(key), getTimeoutSetNameByKey(key), getIdleSetNameByKey(key), getCreatedChannelNameByKey(key),
                         getLastAccessTimeSetNameByKey(key), getRemovedChannelNameByKey(key), getOptionsName(key)),
                 System.currentTimeMillis(), encodeMapKey(key), encodeMapValue(value));
+    }
+    
+    @Override
+    public void putAll(Map<? extends K, ? extends V> map, long ttl, TimeUnit ttlUnit) {
+        get(putAllAsync(map, ttl, ttlUnit));
+    }
+    
+    @Override
+    public RFuture<Void> putAllAsync(final Map<? extends K, ? extends V> map, long ttl, TimeUnit ttlUnit) {
+        if (map.isEmpty()) {
+            return RedissonPromise.newSucceededFuture(null);
+        }
+
+        RFuture<Void> future = putAllOperationAsync(map, ttl, ttlUnit);
+        if (hasNoWriter()) {
+            return future;
+        }
+
+        MapWriterTask<Void> listener = new MapWriterTask<Void>() {
+            @Override
+            public void execute() {
+                options.getWriter().writeAll((Map<K, V>) map);
+            }
+        };
+        return mapWriterFuture(future, listener);
     }
 
     @Override
@@ -1210,28 +1238,30 @@ public class RedissonMapCache<K, V> extends RedissonMap<K, V> implements RMapCac
     }
 
     @Override
-    public MapScanResult<ScanObjectEntry, ScanObjectEntry> scanIterator(String name, RedisClient client, long startPos, String pattern) {
-        return get(scanIteratorAsync(name, client, startPos, pattern));
+    public MapScanResult<Object, Object> scanIterator(String name, RedisClient client, long startPos, String pattern, int count) {
+        return get(scanIteratorAsync(name, client, startPos, pattern, count));
     }
 
-    public RFuture<MapScanResult<ScanObjectEntry, ScanObjectEntry>> scanIteratorAsync(final String name, RedisClient client, long startPos, String pattern) {
+    @Override
+    public RFuture<MapScanResult<Object, Object>> scanIteratorAsync(final String name, RedisClient client, long startPos, String pattern, int count) {
         List<Object> params = new ArrayList<Object>();
         params.add(System.currentTimeMillis());
         params.add(startPos);
         if (pattern != null) {
             params.add(pattern);
         }
+        params.add(count);
 
         RedisCommand<MapCacheScanResult<Object, Object>> EVAL_HSCAN = new RedisCommand<MapCacheScanResult<Object, Object>>("EVAL",
-                new ListMultiDecoder(new LongMultiDecoder(), new ObjectMapDecoder(new MapScanCodec(codec)), new ObjectListDecoder(codec), new MapCacheScanResultReplayDecoder()), ValueType.MAP);
-        RFuture<MapCacheScanResult<ScanObjectEntry, ScanObjectEntry>> f = commandExecutor.evalReadAsync(client, name, codec, EVAL_HSCAN,
+                new ListMultiDecoder(new LongMultiDecoder(), new ObjectMapDecoder(codec), new ObjectListDecoder(codec), new MapCacheScanResultReplayDecoder()), ValueType.MAP);
+        RFuture<MapCacheScanResult<Object, Object>> f = commandExecutor.evalReadAsync(client, name, codec, EVAL_HSCAN,
                 "local result = {}; "
                 + "local idleKeys = {}; "
                 + "local res; "
-                + "if (#ARGV == 3) then "
-                    + " res = redis.call('hscan', KEYS[1], ARGV[2], 'match', ARGV[3]); "
+                + "if (#ARGV == 4) then "
+                    + " res = redis.call('hscan', KEYS[1], ARGV[2], 'match', ARGV[3], 'count', ARGV[4]); "
                 + "else "
-                    + " res = redis.call('hscan', KEYS[1], ARGV[2]); "
+                    + " res = redis.call('hscan', KEYS[1], ARGV[2], 'count', ARGV[3]); "
                 + "end;"
                 + "local currentTime = tonumber(ARGV[1]); "
                 + "for i, value in ipairs(res[2]) do "
@@ -1264,12 +1294,12 @@ public class RedissonMapCache<K, V> extends RedissonMap<K, V> implements RMapCac
                 Arrays.<Object>asList(name, getTimeoutSetName(name), getIdleSetName(name)),
                 params.toArray());
 
-        f.addListener(new FutureListener<MapCacheScanResult<ScanObjectEntry, ScanObjectEntry>>() {
+        f.addListener(new FutureListener<MapCacheScanResult<Object, Object>>() {
             @Override
-            public void operationComplete(Future<MapCacheScanResult<ScanObjectEntry, ScanObjectEntry>> future)
+            public void operationComplete(Future<MapCacheScanResult<Object, Object>> future)
                     throws Exception {
                 if (future.isSuccess()) {
-                    MapCacheScanResult<ScanObjectEntry, ScanObjectEntry> res = future.getNow();
+                    MapCacheScanResult<Object, Object> res = future.getNow();
                     if (res.getIdleKeys().isEmpty()) {
                         return;
                     }
@@ -1303,7 +1333,7 @@ public class RedissonMapCache<K, V> extends RedissonMap<K, V> implements RMapCac
             }
         });
 
-        return (RFuture<MapScanResult<ScanObjectEntry, ScanObjectEntry>>)(Object)f;
+        return (RFuture<MapScanResult<Object, Object>>)(Object)f;
     }
 
 
@@ -1768,6 +1798,105 @@ public class RedissonMapCache<K, V> extends RedissonMap<K, V> implements RMapCac
                         getUpdatedChannelName(), getLastAccessTimeSetName(), getRemovedChannelName(), getOptionsName()),
             params.toArray());
     }
+    
+    private RFuture<Void> putAllOperationAsync(Map<? extends K, ? extends V> map, long ttl, TimeUnit ttlUnit) {
+        List<Object> params = new ArrayList<Object>(map.size()*2 + 2);
+        params.add(System.currentTimeMillis());
+        long ttlTimeout = 0;
+        if (ttl > 0) {
+            ttlTimeout = System.currentTimeMillis() + ttlUnit.toMillis(ttl);
+        }
+        params.add(ttlTimeout);
+        for (java.util.Map.Entry<? extends K, ? extends V> t : map.entrySet()) {
+            if (t.getKey() == null) {
+                throw new NullPointerException("map key can't be null");
+            }
+            if (t.getValue() == null) {
+                throw new NullPointerException("map value can't be null");
+            }
+
+            params.add(encodeMapKey(t.getKey()));
+            params.add(encodeMapValue(t.getValue()));
+        }
+
+        return commandExecutor.evalWriteAsync(getName(), codec, RedisCommands.EVAL_VOID,
+                  "local currentTime = tonumber(table.remove(ARGV, 1)); " + // index is the first parameter
+                  "local ttl = table.remove(ARGV, 1); " + // ttl is the second parameter
+                  "local ttlNumber = tonumber(ttl); " +
+                  "local maxSize = tonumber(redis.call('hget', KEYS[8], 'max-size'));" +
+                  "for i, value in ipairs(ARGV) do "
+                    + "if i % 2 == 0 then " 
+                      + "local key = ARGV[i-1];" +
+
+                        "local v = redis.call('hget', KEYS[1], key);" +
+                        "local exists = false;" +
+                        "if v ~= false then" +
+                        "    local t, val = struct.unpack('dLc0', v);" +
+                        "    local expireDate = 92233720368547758;" +
+                        "    local expireDateScore = redis.call('zscore', KEYS[2], key);" +
+                        "    if expireDateScore ~= false then" +
+                        "        expireDate = tonumber(expireDateScore)" +
+                        "    end;" +
+                        "    if t ~= 0 then" +
+                        "        local expireIdle = redis.call('zscore', KEYS[3], key);" +
+                        "        if expireIdle ~= false then" +
+                        "            expireDate = math.min(expireDate, tonumber(expireIdle))" +
+                        "        end;" +
+                        "    end;" +
+                        "    if expireDate > tonumber(currentTime) then" +
+                        "        exists = true;" +
+                        "    end;" +
+                        "end;" +
+                        "" +
+                        "if ttlNumber > 0 then " +
+                        "    redis.call('zadd', KEYS[2], ttl, key); " +
+                        "else " +
+                        "    redis.call('zrem', KEYS[2], key); " +
+                        "end; " +
+                        "" +
+                        "local newvalue = struct.pack('dLc0', 0, string.len(value), value);" +
+                        "redis.call('hset', KEYS[1], key, newvalue);" +
+
+                        "local lastAccessTimeSetName = KEYS[6];" +
+                        "if exists == false then" +
+                        "    if maxSize ~= nil and maxSize ~= 0 then" +
+                        "        redis.call('zadd', lastAccessTimeSetName, currentTime, key);" +
+                        "        local cacheSize = tonumber(redis.call('hlen', KEYS[1]));" +
+                        "        if cacheSize > maxSize then" +
+                        "            local lruItems = redis.call('zrange', lastAccessTimeSetName, 0, cacheSize - maxSize - 1);" +
+                        "            for index, lruItem in ipairs(lruItems) do" +
+                        "                if lruItem then" +
+                        "                    local lruItemValue = redis.call('hget', KEYS[1], lruItem);" +
+                        "                    redis.call('hdel', KEYS[1], lruItem);" +
+                        "                    redis.call('zrem', KEYS[2], lruItem);" +
+                        "                    redis.call('zrem', KEYS[3], lruItem);" +
+                        "                    redis.call('zrem', lastAccessTimeSetName, lruItem);" +
+                                           " if lruItemValue ~= false then " +
+                            "                    local removedChannelName = KEYS[7];" +
+                            "                    local msg = struct.pack('Lc0Lc0', string.len(lruItem), lruItem, string.len(lruItemValue), lruItemValue);" +
+                            "                    redis.call('publish', removedChannelName, msg);"
+                                          + "end; " +
+                        "                end;" +
+                        "            end" +
+                        "        end;" +
+                        "    end;" +
+                        "    local msg = struct.pack('Lc0Lc0', string.len(key), key, string.len(value), value);" +
+                        "    redis.call('publish', KEYS[4], msg);" +
+                        "else " +
+                            "local t, val = struct.unpack('dLc0', v);" +
+                            "local msg = struct.pack('Lc0Lc0Lc0', string.len(key), key, string.len(value), value, string.len(val), val);" +
+                            "redis.call('publish', KEYS[5], msg);" + 
+                            
+                        "    if maxSize ~= nil and maxSize ~= 0 then " +
+                        "        redis.call('zadd', lastAccessTimeSetName, currentTime, key);" +
+                        "    end;" +
+                        "end;"
+                    + "end;"
+                + "end;",
+                Arrays.<Object>asList(getName(), getTimeoutSetName(), getIdleSetName(), getCreatedChannelName(),
+                        getUpdatedChannelName(), getLastAccessTimeSetName(), getRemovedChannelName(), getOptionsName()),
+            params.toArray());
+    }
 
     private Boolean isWindows;
     
@@ -1785,10 +1914,10 @@ public class RedissonMapCache<K, V> extends RedissonMap<K, V> implements RMapCac
         }
 
         if (listener instanceof EntryRemovedListener) {
-            RTopic<List<Object>> topic = redisson.getTopic(getRemovedChannelName(), new MapCacheEventCodec(codec, isWindows));
-            return topic.addListener(new MessageListener<List<Object>>() {
+            RTopic topic = redisson.getTopic(getRemovedChannelName(), new MapCacheEventCodec(codec, isWindows));
+            return topic.addListener(List.class, new MessageListener<List<Object>>() {
                 @Override
-                public void onMessage(String channel, List<Object> msg) {
+                public void onMessage(CharSequence channel, List<Object> msg) {
                     EntryEvent<K, V> event = new EntryEvent<K, V>(RedissonMapCache.this, EntryEvent.Type.REMOVED, (K)msg.get(0), (V)msg.get(1), null);
                     ((EntryRemovedListener<K, V>) listener).onRemoved(event);
                 }
@@ -1796,10 +1925,10 @@ public class RedissonMapCache<K, V> extends RedissonMap<K, V> implements RMapCac
         }
 
         if (listener instanceof EntryCreatedListener) {
-            RTopic<List<Object>> topic = redisson.getTopic(getCreatedChannelName(), new MapCacheEventCodec(codec, isWindows));
-            return topic.addListener(new MessageListener<List<Object>>() {
+            RTopic topic = redisson.getTopic(getCreatedChannelName(), new MapCacheEventCodec(codec, isWindows));
+            return topic.addListener(List.class, new MessageListener<List<Object>>() {
                 @Override
-                public void onMessage(String channel, List<Object> msg) {
+                public void onMessage(CharSequence channel, List<Object> msg) {
                     EntryEvent<K, V> event = new EntryEvent<K, V>(RedissonMapCache.this, EntryEvent.Type.CREATED, (K)msg.get(0), (V)msg.get(1), null);
                     ((EntryCreatedListener<K, V>) listener).onCreated(event);
                 }
@@ -1807,10 +1936,10 @@ public class RedissonMapCache<K, V> extends RedissonMap<K, V> implements RMapCac
         }
 
         if (listener instanceof EntryUpdatedListener) {
-            RTopic<List<Object>> topic = redisson.getTopic(getUpdatedChannelName(), new MapCacheEventCodec(codec, isWindows));
-            return topic.addListener(new MessageListener<List<Object>>() {
+            RTopic topic = redisson.getTopic(getUpdatedChannelName(), new MapCacheEventCodec(codec, isWindows));
+            return topic.addListener(List.class, new MessageListener<List<Object>>() {
                 @Override
-                public void onMessage(String channel, List<Object> msg) {
+                public void onMessage(CharSequence channel, List<Object> msg) {
                     EntryEvent<K, V> event = new EntryEvent<K, V>(RedissonMapCache.this, EntryEvent.Type.UPDATED, (K)msg.get(0), (V)msg.get(1), (V)msg.get(2));
                     ((EntryUpdatedListener<K, V>) listener).onUpdated(event);
                 }
@@ -1818,10 +1947,10 @@ public class RedissonMapCache<K, V> extends RedissonMap<K, V> implements RMapCac
         }
 
         if (listener instanceof EntryExpiredListener) {
-            RTopic<List<Object>> topic = redisson.getTopic(getExpiredChannelName(), new MapCacheEventCodec(codec, isWindows));
-            return topic.addListener(new MessageListener<List<Object>>() {
+            RTopic topic = redisson.getTopic(getExpiredChannelName(), new MapCacheEventCodec(codec, isWindows));
+            return topic.addListener(List.class, new MessageListener<List<Object>>() {
                 @Override
-                public void onMessage(String channel, List<Object> msg) {
+                public void onMessage(CharSequence channel, List<Object> msg) {
                     EntryEvent<K, V> event = new EntryEvent<K, V>(RedissonMapCache.this, EntryEvent.Type.EXPIRED, (K)msg.get(0), (V)msg.get(1), null);
                     ((EntryExpiredListener<K, V>) listener).onExpired(event);
                 }
@@ -1833,19 +1962,25 @@ public class RedissonMapCache<K, V> extends RedissonMap<K, V> implements RMapCac
 
     @Override
     public void removeListener(int listenerId) {
-        RTopic<List<Object>> removedTopic = redisson.getTopic(getRemovedChannelName());
+        RTopic removedTopic = redisson.getTopic(getRemovedChannelName());
         removedTopic.removeListener(listenerId);
 
-        RTopic<List<Object>> createdTopic = redisson.getTopic(getCreatedChannelName());
+        RTopic createdTopic = redisson.getTopic(getCreatedChannelName());
         createdTopic.removeListener(listenerId);
 
-        RTopic<List<Object>> updatedTopic = redisson.getTopic(getUpdatedChannelName());
+        RTopic updatedTopic = redisson.getTopic(getUpdatedChannelName());
         updatedTopic.removeListener(listenerId);
 
-        RTopic<List<Object>> expiredTopic = redisson.getTopic(getExpiredChannelName());
+        RTopic expiredTopic = redisson.getTopic(getExpiredChannelName());
         expiredTopic.removeListener(listenerId);
     }
 
+    @Override
+    public RFuture<Long> sizeInMemoryAsync() {
+        List<Object> keys = Arrays.<Object>asList(getName(), getTimeoutSetName(), getIdleSetName(), getLastAccessTimeSetName(), getOptionsName());
+        return super.sizeInMemoryAsync(keys);
+    }
+    
     @Override
     public RFuture<Boolean> deleteAsync() {
         return commandExecutor.writeAsync(getName(), RedisCommands.DEL_OBJECTS, 
@@ -2026,5 +2161,12 @@ public class RedissonMapCache<K, V> extends RedissonMap<K, V> implements RMapCac
                     "return result;",
                 Arrays.<Object>asList(getName(), getTimeoutSetName(), getIdleSetName(), getLastAccessTimeSetName(), getOptionsName()),
                 System.currentTimeMillis());
+    }
+
+    @Override
+    public void destroy() {
+        if (evictionScheduler != null) {
+            evictionScheduler.remove(getName());
+        }
     }
 }

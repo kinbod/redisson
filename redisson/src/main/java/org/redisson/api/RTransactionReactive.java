@@ -19,7 +19,7 @@ import org.reactivestreams.Publisher;
 import org.redisson.client.codec.Codec;
 
 /**
- * Transaction object allows to execute transactions over Redisson objects.
+ * Reactive interface for transaction object allows to execute transactions over Redisson objects.
  * Uses locks for write operations and maintains data modification operations list till the commit/rollback operation.
  * <p>
  * Transaction isolation level: <b>READ_COMMITTED</b>
@@ -146,11 +146,14 @@ public interface RTransactionReactive {
     
     /**
      * Commits all changes made on this transaction.
+     * 
+     * @return void
      */
     Publisher<Void> commit();
     
     /**
      * Rollback all changes made on this transaction.
+     * @return void
      */
     Publisher<Void> rollback();
 

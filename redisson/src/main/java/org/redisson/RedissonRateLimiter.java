@@ -122,7 +122,11 @@ public class RedissonRateLimiter extends RedissonObject implements RRateLimiter 
     @Override
     public RFuture<Boolean> tryAcquireAsync(long permits, long timeout, TimeUnit unit) {
         RPromise<Boolean> promise = new RedissonPromise<Boolean>();
-        tryAcquireAsync(permits, promise, unit.toMillis(timeout));
+        long timeoutInMillis = -1;
+        if (timeout > 0) {
+            timeoutInMillis = unit.toMillis(timeout);
+        }
+        tryAcquireAsync(permits, promise, timeoutInMillis);
         return promise;
     }
     
@@ -149,7 +153,7 @@ public class RedissonRateLimiter extends RedissonObject implements RRateLimiter 
                         public void run() {
                             tryAcquireAsync(permits, promise, timeoutInMillis);
                         }
-                    }, delay, TimeUnit.SECONDS);
+                    }, delay, TimeUnit.MILLISECONDS);
                     return;
                 }
                 
@@ -165,7 +169,7 @@ public class RedissonRateLimiter extends RedissonObject implements RRateLimiter 
                         public void run() {
                             promise.trySuccess(false);
                         }
-                    }, remains, TimeUnit.SECONDS);
+                    }, remains, TimeUnit.MILLISECONDS);
                 } else {
                     final long start = System.currentTimeMillis();
                     commandExecutor.getConnectionManager().getGroup().schedule(new Runnable() {
@@ -179,7 +183,7 @@ public class RedissonRateLimiter extends RedissonObject implements RRateLimiter 
                             
                             tryAcquireAsync(permits, promise, remains - elapsed);
                         }
-                    }, delay, TimeUnit.SECONDS);
+                    }, delay, TimeUnit.MILLISECONDS);
                 }
             }
         });

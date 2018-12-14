@@ -28,7 +28,7 @@ import org.reactivestreams.Publisher;
  * @param <V> the type of elements held in this collection
  */
 // TODO add sublist support
-public interface RListReactive<V> extends RCollectionReactive<V> {
+public interface RListReactive<V> extends RCollectionReactive<V>, RSortableReactive<List<V>> {
 
     /**
      * Loads elements by specified <code>indexes</code>
@@ -62,21 +62,21 @@ public interface RListReactive<V> extends RCollectionReactive<V> {
 
     Publisher<V> iterator(int startIndex);
 
-    Publisher<Long> lastIndexOf(Object o);
+    Publisher<Integer> lastIndexOf(Object o);
 
-    Publisher<Long> indexOf(Object o);
+    Publisher<Integer> indexOf(Object o);
 
-    Publisher<Integer> add(long index, V element);
+    Publisher<Void> add(int index, V element);
 
-    Publisher<Integer> addAll(long index, Collection<? extends V> coll);
+    Publisher<Boolean> addAll(int index, Collection<? extends V> coll);
 
-    Publisher<Void> fastSet(long index, V element);
+    Publisher<Void> fastSet(int index, V element);
 
-    Publisher<V> set(long index, V element);
+    Publisher<V> set(int index, V element);
 
-    Publisher<V> get(long index);
+    Publisher<V> get(int index);
 
-    Publisher<V> remove(long index);
+    Publisher<V> remove(int index);
     
     /**
      * Read all elements at once
@@ -87,7 +87,7 @@ public interface RListReactive<V> extends RCollectionReactive<V> {
 
     /**
      * Trim list and remains elements only in specified range
-     * <tt>fromIndex</tt>, inclusive, and <tt>toIndex</tt>, inclusive.
+     * <code>fromIndex</code>, inclusive, and <code>toIndex</code>, inclusive.
      *
      * @param fromIndex - from index
      * @param toIndex - to index
@@ -101,6 +101,6 @@ public interface RListReactive<V> extends RCollectionReactive<V> {
      * @param index - index of object
      * @return void
      */
-    Publisher<Void> fastRemove(long index);
+    Publisher<Void> fastRemove(int index);
     
 }

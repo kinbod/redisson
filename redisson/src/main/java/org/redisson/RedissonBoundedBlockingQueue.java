@@ -152,6 +152,10 @@ public class RedissonBoundedBlockingQueue<V> extends RedissonQueue<V> implements
                     return;
                 }
                 
+                if (future.getNow() == null) {
+                    result.trySuccess(takeFuture.getNow());
+                    return;
+                }
                 createSemaphore(null).releaseAsync().addListener(new FutureListener<Void>() {
                     @Override
                     public void operationComplete(Future<Void> future) throws Exception {
@@ -365,6 +369,12 @@ public class RedissonBoundedBlockingQueue<V> extends RedissonQueue<V> implements
     @Override
     public RFuture<Boolean> deleteAsync() {
         return commandExecutor.writeAsync(getName(), RedisCommands.DEL_OBJECTS, getName(), getSemaphoreName());
+    }
+    
+    @Override
+    public RFuture<Long> sizeInMemoryAsync() {
+        List<Object> keys = Arrays.<Object>asList(getName(), getSemaphoreName());
+        return super.sizeInMemoryAsync(keys);
     }
 
     @Override

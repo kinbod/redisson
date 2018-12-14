@@ -31,6 +31,7 @@
  */
 package org.redisson.client.handler;
 
+import org.redisson.client.ChannelName;
 import org.redisson.client.protocol.CommandData;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,6 +39,7 @@ import org.slf4j.LoggerFactory;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 import io.netty.buffer.ByteBufUtil;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPromise;
@@ -112,13 +114,13 @@ public class CommandEncoder extends MessageToByteEncoder<CommandData<?, ?>> {
 
     private ByteBuf encode(Object in) {
         if (in instanceof byte[]) {
-            byte[] payload = (byte[])in;
-            ByteBuf out = ByteBufAllocator.DEFAULT.buffer(payload.length);
-            out.writeBytes(payload);
-            return out;
+            return Unpooled.wrappedBuffer((byte[])in);
         }
         if (in instanceof ByteBuf) {
             return (ByteBuf) in;
+        }
+        if (in instanceof ChannelName) {
+            return Unpooled.wrappedBuffer(((ChannelName)in).getName());
         }
 
         String payload = in.toString();

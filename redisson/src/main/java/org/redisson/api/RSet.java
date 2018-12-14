@@ -30,17 +30,77 @@ import org.redisson.api.mapreduce.RCollectionMapReduce;
 public interface RSet<V> extends Set<V>, RExpirable, RSetAsync<V>, RSortable<Set<V>> {
 
     /**
+     * Returns <code>RCountDownLatch</code> instance associated with <code>value</code>
+     * 
+     * @param value - set value
+     * @return RCountDownLatch object
+     */
+    RCountDownLatch getCountDownLatch(V value);
+    
+    /**
+     * Returns <code>RPermitExpirableSemaphore</code> instance associated with <code>value</code>
+     * 
+     * @param value - set value
+     * @return RPermitExpirableSemaphore object
+     */
+    RPermitExpirableSemaphore getPermitExpirableSemaphore(V value);
+
+    /**
+     * Returns <code>RSemaphore</code> instance associated with <code>value</code>
+     * 
+     * @param value - set value
+     * @return RSemaphore object
+     */
+    RSemaphore getSemaphore(V value);
+    
+    /**
+     * Returns <code>RLock</code> instance associated with <code>value</code>
+     * 
+     * @param value - set value
+     * @return RLock object
+     */
+    RLock getFairLock(V value);
+    
+    /**
+     * Returns <code>RReadWriteLock</code> instance associated with <code>value</code>
+     * 
+     * @param value - set value
+     * @return RReadWriteLock object
+     */
+    RReadWriteLock getReadWriteLock(V value);
+    
+    /**
      * Returns lock instance associated with <code>value</code>
      * 
      * @param value - set value
-     * @return lock
+     * @return RLock object
      */
     RLock getLock(V value);
     
     /**
-     * Returns values iterator matches <code>pattern</code>. 
+     * Returns an iterator over elements in this set.
+     * Elements are loaded in batch. Batch size is defined by <code>count</code> param. 
      * 
-     * @param pattern for values
+     * @param count - size of elements batch
+     * @return iterator
+     */
+    Iterator<V> iterator(int count);
+    
+    /**
+     * Returns an iterator over elements in this set.
+     * Elements are loaded in batch. Batch size is defined by <code>count</code> param.
+     * If pattern is not null then only elements match this pattern are loaded.
+     * 
+     * @param pattern - search pattern
+     * @param count - size of elements batch
+     * @return iterator
+     */
+    Iterator<V> iterator(String pattern, int count);
+    
+    /**
+     * Returns iterator over elements in this set matches <code>pattern</code>. 
+     * 
+     * @param pattern - search pattern
      * @return iterator
      */
     Iterator<V> iterator(String pattern);
@@ -76,6 +136,14 @@ public interface RSet<V> extends Set<V>, RExpirable, RSetAsync<V>, RSortable<Set
      */
     V random();
 
+    /**
+     * Returns random elements from set limited by <code>count</code>
+     *
+     * @param count - values amount to return
+     * @return value
+     */
+    Set<V> random(int count);
+    
     /**
      * Move a member from this set to the given destination set in.
      *

@@ -35,7 +35,7 @@ public class ObjectMapReplayDecoder implements MultiDecoder<Map<Object, Object>>
         for (int i = 0; i < parts.size(); i++) {
             if (i % 2 != 0) {
                 result.put(parts.get(i-1), parts.get(i));
-           }
+            }
         }
         return result;
     }

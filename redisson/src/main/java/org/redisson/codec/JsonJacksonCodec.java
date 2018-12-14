@@ -61,7 +61,10 @@ public class JsonJacksonCodec extends BaseCodec {
     public static final JsonJacksonCodec INSTANCE = new JsonJacksonCodec();
 
     @JsonIdentityInfo(generator=ObjectIdGenerators.IntSequenceGenerator.class, property="@id")
-    @JsonAutoDetect(fieldVisibility = Visibility.NONE, getterVisibility = Visibility.PUBLIC_ONLY, setterVisibility = Visibility.PUBLIC_ONLY, isGetterVisibility = Visibility.PUBLIC_ONLY)
+    @JsonAutoDetect(fieldVisibility = Visibility.ANY, 
+                    getterVisibility = Visibility.PUBLIC_ONLY, 
+                    setterVisibility = Visibility.NONE, 
+                    isGetterVisibility = Visibility.NONE)
     public static class ThrowableMixIn {
         
     }
@@ -79,6 +82,9 @@ public class JsonJacksonCodec extends BaseCodec {
             } catch (IOException e) {
                 out.release();
                 throw e;
+            } catch (Exception e) {
+                out.release();
+                throw new IOException(e);
             }
         }
     };

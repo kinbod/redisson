@@ -32,12 +32,10 @@ import org.redisson.api.RObject;
 import org.redisson.api.RType;
 import org.redisson.client.RedisClient;
 import org.redisson.client.RedisException;
-import org.redisson.client.codec.ScanCodec;
 import org.redisson.client.codec.StringCodec;
 import org.redisson.client.protocol.RedisCommands;
 import org.redisson.client.protocol.RedisStrictCommand;
 import org.redisson.client.protocol.decoder.ListScanResult;
-import org.redisson.client.protocol.decoder.ScanObjectEntry;
 import org.redisson.command.CommandAsyncExecutor;
 import org.redisson.command.CommandBatchService;
 import org.redisson.connection.MasterSlaveEntry;
@@ -88,6 +86,7 @@ public class RedissonKeys implements RKeys {
         return getKeysByPattern(pattern, 10);
     }
     
+    @Override
     public Iterable<String> getKeysByPattern(final String pattern, final int count) {
         List<Iterable<String>> iterables = new ArrayList<Iterable<String>>();
         for (final MasterSlaveEntry entry : commandExecutor.getConnectionManager().getEntrySet()) {
@@ -107,27 +106,30 @@ public class RedissonKeys implements RKeys {
     public Iterable<String> getKeys() {
         return getKeysByPattern(null);
     }
+    
+    @Override
+    public Iterable<String> getKeys(int count) {
+        return getKeysByPattern(null, count);
+    }
 
-    private ListScanResult<ScanObjectEntry> scanIterator(RedisClient client, MasterSlaveEntry entry, long startPos, String pattern, int count) {
+    public RFuture<ListScanResult<Object>> scanIteratorAsync(RedisClient client, MasterSlaveEntry entry, long startPos, String pattern, int count) {
         if (pattern == null) {
-            RFuture<ListScanResult<ScanObjectEntry>> f = commandExecutor.readAsync(client, entry, new ScanCodec(StringCodec.INSTANCE), RedisCommands.SCAN, startPos, "COUNT", count);
-            return commandExecutor.get(f);
+            return commandExecutor.readAsync(client, entry, StringCodec.INSTANCE, RedisCommands.SCAN, startPos, "COUNT", count);
         }
-        RFuture<ListScanResult<ScanObjectEntry>> f = commandExecutor.readAsync(client, entry, new ScanCodec(StringCodec.INSTANCE), RedisCommands.SCAN, startPos, "MATCH", pattern, "COUNT", count);
-        return commandExecutor.get(f);
+        return commandExecutor.readAsync(client, entry, StringCodec.INSTANCE, RedisCommands.SCAN, startPos, "MATCH", pattern, "COUNT", count);
     }
 
     private Iterator<String> createKeysIterator(final MasterSlaveEntry entry, final String pattern, final int count) {
         return new RedissonBaseIterator<String>() {
 
             @Override
-            protected ListScanResult<ScanObjectEntry> iterator(RedisClient client, long nextIterPos) {
-                return RedissonKeys.this.scanIterator(client, entry, nextIterPos, pattern, count);
+            protected ListScanResult<Object> iterator(RedisClient client, long nextIterPos) {
+                return commandExecutor.get(RedissonKeys.this.scanIteratorAsync(client, entry, nextIterPos, pattern, count));
             }
 
             @Override
-            protected void remove(ScanObjectEntry value) {
-                RedissonKeys.this.delete((String)value.getObj());
+            protected void remove(Object value) {
+                RedissonKeys.this.delete((String)value);
             }
             
         };
@@ -183,7 +185,7 @@ public class RedissonKeys implements RKeys {
 
     @Override
     public RFuture<String> randomKeyAsync() {
-        return commandExecutor.readRandomAsync(RedisCommands.RANDOM_KEY);
+        return commandExecutor.readRandomAsync(StringCodec.INSTANCE, RedisCommands.RANDOM_KEY);
     }
 
     @Override

@@ -57,9 +57,9 @@ public class RedissonSessionRepository implements FindByIndexNameSessionReposito
         private final MapSession delegate;
         private RMap<String, Object> map;
 
-        public RedissonSession() {
+        public RedissonSession(String keyPrefix) {
             this.delegate = new MapSession();
-            map = redisson.getMap("redisson_spring_session:" + delegate.getId());
+            map = redisson.getMap(keyPrefix + delegate.getId());
             principalName = resolvePrincipal(delegate);
 
             Map<String, Object> newMap = new HashMap<String, Object>(3);
@@ -71,7 +71,7 @@ public class RedissonSessionRepository implements FindByIndexNameSessionReposito
             updateExpiration();
             
             String channelName = getEventsChannelName(delegate.getId());
-            RTopic<String> topic = redisson.getTopic(channelName, StringCodec.INSTANCE);
+            RTopic topic = redisson.getTopic(channelName, StringCodec.INSTANCE);
             topic.publish(delegate.getId());
         }
 
@@ -81,9 +81,9 @@ public class RedissonSessionRepository implements FindByIndexNameSessionReposito
             }
         }
         
-        public RedissonSession(String sessionId) {
+        public RedissonSession(String keyPrefix, String sessionId) {
             this.delegate = new MapSession(sessionId);
-            map = redisson.getMap("redisson_spring_session:" + sessionId);
+            map = redisson.getMap(keyPrefix + sessionId);
             principalName = resolvePrincipal(delegate);
         }
         
@@ -221,9 +221,9 @@ public class RedissonSessionRepository implements FindByIndexNameSessionReposito
     
     private RedissonClient redisson;
     private ApplicationEventPublisher eventPublisher;
-    private RPatternTopic<String> deletedTopic;
-    private RPatternTopic<String> expiredTopic;
-    private RPatternTopic<String> createdTopic;
+    private RPatternTopic deletedTopic;
+    private RPatternTopic expiredTopic;
+    private RPatternTopic createdTopic;
     
     private String keyPrefix = "spring:session:";
     private Integer defaultMaxInactiveInterval;
@@ -233,40 +233,40 @@ public class RedissonSessionRepository implements FindByIndexNameSessionReposito
         this.eventPublisher = eventPublisher;
         
         deletedTopic = redisson.getPatternTopic("__keyevent@*:del", StringCodec.INSTANCE);
-        deletedTopic.addListener(this);
+        deletedTopic.addListener(String.class, this);
         expiredTopic = redisson.getPatternTopic("__keyevent@*:expired", StringCodec.INSTANCE);
-        expiredTopic.addListener(this);
+        expiredTopic.addListener(String.class, this);
         createdTopic = redisson.getPatternTopic(getEventsChannelPrefix() + "*", StringCodec.INSTANCE);
-        createdTopic.addListener(this);
+        createdTopic.addListener(String.class, this);
     }
     
     @Override
-    public void onMessage(String pattern, String channel, String body) {
-        if (createdTopic.getPatternNames().contains(pattern)) {
+    public void onMessage(CharSequence pattern, CharSequence channel, String body) {
+        if (createdTopic.getPatternNames().contains(pattern.toString())) {
             RedissonSession session = getSession(body);
             if (session != null) {
                 publishEvent(new SessionCreatedEvent(this, session));
             }
-        } else if (deletedTopic.getPatternNames().contains(pattern)) {
+        } else if (deletedTopic.getPatternNames().contains(pattern.toString())) {
             if (!body.contains(":")) {
                 return;
             }
             
             String id = body.split(":")[1];
-            RedissonSession session = new RedissonSession(id);
+            RedissonSession session = new RedissonSession(keyPrefix, id);
             if (session.load()) {
                 session.clearPrincipal();
                 publishEvent(new SessionDeletedEvent(this, session));
             } else {
                 publishEvent(new SessionDeletedEvent(this, id));
             }
-        } else if (expiredTopic.getPatternNames().contains(pattern)) {
+        } else if (expiredTopic.getPatternNames().contains(pattern.toString())) {
             if (!body.contains(":")) {
                 return;
             }
 
             String id = body.split(":")[1];
-            RedissonSession session = new RedissonSession(id);
+            RedissonSession session = new RedissonSession(keyPrefix, id);
             if (session.load()) {
                 session.clearPrincipal();
                 publishEvent(new SessionExpiredEvent(this, session));
@@ -290,7 +290,7 @@ public class RedissonSessionRepository implements FindByIndexNameSessionReposito
 
     @Override
     public RedissonSession createSession() {
-        RedissonSession session = new RedissonSession();
+        RedissonSession session = new RedissonSession(keyPrefix);
         if (defaultMaxInactiveInterval != null) {
             session.setMaxInactiveIntervalInSeconds(defaultMaxInactiveInterval);
         }
@@ -304,7 +304,7 @@ public class RedissonSessionRepository implements FindByIndexNameSessionReposito
 
     @Override
     public RedissonSession getSession(String id) {
-        RedissonSession session = new RedissonSession(id);
+        RedissonSession session = new RedissonSession(keyPrefix, id);
         if (!session.load() || session.isExpired()) {
             return null;
         }

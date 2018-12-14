@@ -44,6 +44,7 @@ public interface RKeysReactive {
      * @param port - destination port
      * @param database - destination database
      * @param timeout - maximum idle time in any moment of the communication with the destination instance in milliseconds
+     * @return void
      */
     Publisher<Void> migrate(String name, String host, int port, int database, long timeout);
     
@@ -55,6 +56,7 @@ public interface RKeysReactive {
      * @param port - destination port
      * @param database - destination database
      * @param timeout - maximum idle time in any moment of the communication with the destination instance in milliseconds
+     * @return void
      */
     Publisher<Void> copy(String name, String host, int port, int database, long timeout);
     
@@ -103,6 +105,7 @@ public interface RKeysReactive {
      *
      * @param currentName - current name of object
      * @param newName - new name of object
+     * @return void
      */
     Publisher<Void> rename(String currentName, String newName);
     
@@ -141,18 +144,27 @@ public interface RKeysReactive {
     Publisher<RType> getType(String key);
     
     /**
-     * Load keys in incrementally iterate mode.
+     * Load keys in incrementally iterate mode. Keys traversed with SCAN operation.
+     * Each SCAN operation loads up to 10 keys per request.
      *
-     * Uses <code>SCAN</code> Redis command.
-     *
-     * @return all keys
+     * @return keys
      */
     Publisher<String> getKeys();
+    
+    /**
+     * Load keys in incrementally iterate mode. Keys traversed with SCAN operation.
+     * Each SCAN operation loads up to <code>count</code> keys per request.
+     *
+     * @param count - keys loaded per request to Redis
+     * @return keys
+     */
+    Publisher<String> getKeys(int count);
 
     /**
      * Find keys by pattern and load it in incrementally iterate mode.
-     *
-     * Uses <code>SCAN</code> Redis command.
+     * Keys traversed with SCAN operation.
+     * Each SCAN operation loads up to 10 keys per request.
+     * <p>
      *
      *  Supported glob-style patterns:
      *    h?llo subscribes to hello, hallo and hxllo
@@ -164,6 +176,25 @@ public interface RKeysReactive {
      */
     Publisher<String> getKeysByPattern(String pattern);
 
+    /**
+     * Get all keys by pattern using iterator. 
+     * Keys traversed with SCAN operation. Each SCAN operation loads 
+     * up to <code>count</code> keys per request. 
+     * <p>
+     *  Supported glob-style patterns:
+     *  <p>
+     *    h?llo subscribes to hello, hallo and hxllo
+     *    <p>
+     *    h*llo subscribes to hllo and heeeello
+     *    <p>
+     *    h[ae]llo subscribes to hello and hallo, but not hillo
+     *
+     * @param pattern - match pattern
+     * @param count - keys loaded per request to Redis
+     * @return keys
+     */
+    Publisher<String> getKeysByPattern(String pattern, int count);
+    
     /**
      * Get hash slot identifier for key.
      * Available for cluster nodes only.

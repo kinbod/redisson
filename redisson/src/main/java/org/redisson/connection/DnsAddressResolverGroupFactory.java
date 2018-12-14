@@ -26,7 +26,7 @@ import io.netty.resolver.dns.DnsServerAddressStreamProvider;
  *
  */
 public class DnsAddressResolverGroupFactory implements AddressResolverGroupFactory {
-
+    
     @Override
     public DnsAddressResolverGroup create(Class<? extends DatagramChannel> channelType,
             DnsServerAddressStreamProvider nameServerProvider) {

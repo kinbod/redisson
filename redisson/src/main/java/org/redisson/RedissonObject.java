@@ -18,12 +18,15 @@ package org.redisson;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 import org.redisson.api.RFuture;
 import org.redisson.api.RObject;
+import org.redisson.client.codec.ByteArrayCodec;
 import org.redisson.client.codec.Codec;
+import org.redisson.client.codec.StringCodec;
 import org.redisson.client.protocol.RedisCommands;
 import org.redisson.command.CommandAsyncExecutor;
 import org.redisson.misc.RedissonObjectFactory;
@@ -94,6 +97,29 @@ public abstract class RedissonObject implements RObject {
     @Override
     public void rename(String newName) {
         get(renameAsync(newName));
+    }
+    
+    @Override
+    public RFuture<Long> sizeInMemoryAsync() {
+        return commandExecutor.writeAsync(getName(), RedisCommands.MEMORY_USAGE, getName());
+    }
+    
+    public final RFuture<Long> sizeInMemoryAsync(List<Object> keys) {
+        return commandExecutor.evalWriteAsync((String)keys.get(0), StringCodec.INSTANCE, RedisCommands.EVAL_LONG,
+                  "local total = 0;"
+                + "for j = 1, #KEYS, 1 do "
+                    + "local size = redis.call('memory', 'usage', KEYS[j]); "
+                    + "if size ~= false then "
+                        + "total = total + size;"
+                    + "end; "
+                + "end; "
+                + "return total; ", keys);
+
+    }
+    
+    @Override
+    public long sizeInMemory() {
+        return get(sizeInMemoryAsync());
     }
 
     @Override
@@ -194,7 +220,7 @@ public abstract class RedissonObject implements RObject {
         return result;
     }
     
-    protected void encode(Collection<Object> params, Collection<?> values) {
+    public void encode(Collection<Object> params, Collection<?> values) {
         for (Object object : values) {
             params.add(encode(object));
         }
@@ -257,4 +283,64 @@ public abstract class RedissonObject implements RObject {
         }
     }
 
+    @Override
+    public byte[] dump() {
+        return get(dumpAsync());
+    }
+    
+    @Override
+    public RFuture<byte[]> dumpAsync() {
+        return commandExecutor.readAsync(getName(), ByteArrayCodec.INSTANCE, RedisCommands.DUMP, getName());
+    }
+    
+    @Override
+    public void restore(byte[] state) {
+        get(restoreAsync(state));
+    }
+    
+    @Override
+    public RFuture<Void> restoreAsync(byte[] state) {
+        return restoreAsync(state, 0, null);
+    }
+    
+    @Override
+    public void restore(byte[] state, long timeToLive, TimeUnit timeUnit) {
+        get(restoreAsync(state, timeToLive, timeUnit));
+    }
+    
+    @Override
+    public RFuture<Void> restoreAsync(byte[] state, long timeToLive, TimeUnit timeUnit) {
+        long ttl = 0;
+        if (timeToLive > 0) {
+            ttl = timeUnit.toMillis(timeToLive);
+        }
+        
+        return commandExecutor.writeAsync(getName(), StringCodec.INSTANCE, RedisCommands.RESTORE, getName(), ttl, state);
+    }
+
+    @Override
+    public void restoreAndReplace(byte[] state, long timeToLive, TimeUnit timeUnit) {
+        get(restoreAndReplaceAsync(state, timeToLive, timeUnit));
+    }
+    
+    @Override
+    public RFuture<Void> restoreAndReplaceAsync(byte[] state, long timeToLive, TimeUnit timeUnit) {
+        long ttl = 0;
+        if (timeToLive > 0) {
+            ttl = timeUnit.toMillis(timeToLive);
+        }
+        
+        return commandExecutor.writeAsync(getName(), StringCodec.INSTANCE, RedisCommands.RESTORE, getName(), ttl, state, "REPLACE");
+    }
+    
+    @Override
+    public void restoreAndReplace(byte[] state) {
+        get(restoreAndReplaceAsync(state));
+    }
+    
+    @Override
+    public RFuture<Void> restoreAndReplaceAsync(byte[] state) {
+        return restoreAndReplaceAsync(state, 0, null);
+    }
+    
 }

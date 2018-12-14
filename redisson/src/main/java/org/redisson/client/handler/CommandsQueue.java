@@ -20,10 +20,13 @@ import java.util.List;
 import java.util.Queue;
 import java.util.regex.Pattern;
 
+import org.redisson.client.ChannelName;
+import org.redisson.client.RedisConnectionClosedException;
 import org.redisson.client.WriteRedisConnectionException;
 import org.redisson.client.protocol.CommandData;
 import org.redisson.client.protocol.QueueCommand;
 import org.redisson.client.protocol.QueueCommandHolder;
+import org.redisson.misc.LogHelper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -77,7 +80,13 @@ public class CommandsQueue extends ChannelDuplexHandler {
             }
             
             command.getChannelPromise().tryFailure(
-                    new WriteRedisConnectionException("Can't write command: " + command.getCommand() + " to channel: " + ctx.channel()));
+                    new WriteRedisConnectionException("Channel has been closed! Can't write command: " 
+                                + LogHelper.toString(command.getCommand()) + " to channel: " + ctx.channel()));
+            
+            if (command.getChannelPromise().isSuccess() && !command.getCommand().isBlockingCommand()) {
+                command.getCommand().tryFailure(new RedisConnectionClosedException("Command " 
+                                + LogHelper.toString(command.getCommand()) + " succesfully sent, but channel " + ctx.channel() + " has been closed!"));
+            }
         }
         
         super.channelInactive(ctx);
@@ -107,7 +116,7 @@ public class CommandsQueue extends ChannelDuplexHandler {
             if (!pubSubOps.isEmpty()) {
                 for (CommandData<Object, Object> cd : pubSubOps) {
                     for (Object channel : cd.getParams()) {
-                        ch.pipeline().get(CommandPubSubDecoder.class).addPubSubCommand(channel.toString(), cd);
+                        ch.pipeline().get(CommandPubSubDecoder.class).addPubSubCommand((ChannelName) channel, cd);
                     }
                 }
             } else {

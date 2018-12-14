@@ -20,11 +20,12 @@ import java.util.Map.Entry;
 
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
-import org.reactivestreams.Subscription;
+import org.redisson.RedissonMap;
 import org.redisson.client.RedisClient;
 import org.redisson.client.protocol.decoder.MapScanResult;
-import org.redisson.client.protocol.decoder.ScanObjectEntry;
 
+import io.netty.util.concurrent.Future;
+import io.netty.util.concurrent.FutureListener;
 import reactor.rx.Stream;
 import reactor.rx.subscription.ReactiveSubscription;
 
@@ -38,10 +39,14 @@ import reactor.rx.subscription.ReactiveSubscription;
  */
 public class RedissonMapReactiveIterator<K, V, M> {
 
-    private final MapReactive<K, V> map;
+    private final RedissonMap<K, V> map;
+    private final String pattern;
+    private final int count;
 
-    public RedissonMapReactiveIterator(MapReactive<K, V> map) {
+    public RedissonMapReactiveIterator(RedissonMap<K, V> map, String pattern, int count) {
         this.map = map;
+        this.pattern = pattern;
+        this.count = count;
     }
 
     public Publisher<M> stream() {
@@ -64,68 +69,61 @@ public class RedissonMapReactiveIterator<K, V, M> {
 
                     protected void nextValues() {
                         final ReactiveSubscription<M> m = this;
-                        map.scanIteratorReactive(client, nextIterPos).subscribe(new Subscriber<MapScanResult<ScanObjectEntry, ScanObjectEntry>>() {
+                        map.scanIteratorAsync(map.getName(), client, nextIterPos, pattern, count).addListener(new FutureListener<MapScanResult<Object, Object>>() {
 
                             @Override
-                            public void onSubscribe(Subscription s) {
-                                s.request(Long.MAX_VALUE);
-                            }
-                            
-                            @Override
-                            public void onNext(MapScanResult<ScanObjectEntry, ScanObjectEntry> res) {
-                                if (currentIndex == 0) {
-                                    client = null;
-                                    nextIterPos = 0;
-                                    return;
-                                }
-
-                                client = res.getRedisClient();
-                                nextIterPos = res.getPos();
-
-                                for (Entry<ScanObjectEntry, ScanObjectEntry> entry : res.getMap().entrySet()) {
-                                    M val = getValue(entry);
-                                    m.onNext(val);
-                                    currentIndex--;
-                                    if (currentIndex == 0) {
-                                        m.onComplete();
+                            public void operationComplete(Future<MapScanResult<Object, Object>> future)
+                                    throws Exception {
+                                    if (!future.isSuccess()) {
+                                        m.onError(future.cause());
                                         return;
                                     }
+    
+                                    if (currentIndex == 0) {
+                                        client = null;
+                                        nextIterPos = 0;
+                                        return;
+                                    }
+    
+                                    MapScanResult<Object, Object> res = future.get();
+                                    client = res.getRedisClient();
+                                    nextIterPos = res.getPos();
+    
+                                    for (Entry<Object, Object> entry : res.getMap().entrySet()) {
+                                        M val = getValue(entry);
+                                        m.onNext(val);
+                                        currentIndex--;
+                                        if (currentIndex == 0) {
+                                            m.onComplete();
+                                            return;
+                                        }
+                                    }
+                                    
+                                    if (res.getPos() == 0) {
+                                        currentIndex = 0;
+                                        m.onComplete();
+                                    }
+    
+                                    if (currentIndex == 0) {
+                                        return;
+                                    }
+                                    nextValues();
                                 }
-                                
-                                if (res.getPos() == 0) {
-                                    currentIndex = 0;
-                                    m.onComplete();
-                                }
-                            }
-
-                            @Override
-                            public void onError(Throwable error) {
-                                m.onError(error);
-                            }
-
-                            @Override
-                            public void onComplete() {
-                                if (currentIndex == 0) {
-                                    return;
-                                }
-                                nextValues();
-                            }
                         });
                     }
                 });
-            }
+            };
 
         };
     }
 
 
-    M getValue(final Entry<ScanObjectEntry, ScanObjectEntry> entry) {
-        return (M)new AbstractMap.SimpleEntry<K, V>((K)entry.getKey().getObj(), (V)entry.getValue().getObj()) {
+    M getValue(final Entry<Object, Object> entry) {
+        return (M)new AbstractMap.SimpleEntry<K, V>((K)entry.getKey(), (V)entry.getValue()) {
 
             @Override
             public V setValue(V value) {
-                Publisher<V> publisher = map.put((K) entry.getKey().getObj(), value);
-                return ((Stream<V>)publisher).next().poll();
+                return map.put((K) entry.getKey(), value);
             }
 
         };
